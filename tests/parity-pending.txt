@@ -12,6 +12,3 @@
 /usr/*/lsmd  # libstoragemgmt, ADR 0002
 /usr/*/sim_lsmplugin  # libstoragemgmt, ADR 0002
 /usr/*/simc_lsmplugin  # libstoragemgmt, ADR 0002
-
-# Dashboard Angular frontend: nixpkgs builds with WITH_MGR_DASHBOARD_FRONTEND=OFF. Umbrella step 3b.
-/usr/share/ceph/mgr/dashboard/frontend/dist/*  # dashboard UI, ADR 0002

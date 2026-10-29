@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Functional test of the image through cephadm, on a throwaway Ubuntu runner (ADR 0006).
 #   cephadm.sh IMAGE_TARBALL        docker-archive tarball, optionally zstd-compressed
-# Env: PENDING_FEATURES=skip   skip what only the Umbrella build provides: dashboard UI, iSCSI
+# Env: PENDING_FEATURES=skip   skip what only the Umbrella build provides: iSCSI
 #      ARTIFACT_DIR            where logs go on failure (default ./cephadm-logs)
 # Allowed health warnings: none. HEALTH_OK is required after the OSDs are up and again at the end.
 set -Eeuo pipefail
@@ -246,18 +246,18 @@ tbx ceph orch apply ceph-exporter
 wait_for 60 "exporter" exporter_up
 endstep
 
-if [ "$pending" != skip ]; then
-	step "dashboard serves the Angular UI on 8443"
-	ui=$(curl -sk https://127.0.0.1:8443/)
-	grep -qi '<app-root' <<<"$ui"
-	endstep
+step "dashboard serves the Angular UI on 8443"
+dashboard_ui() { local ui; ui=$(curl -sk https://127.0.0.1:8443/) && grep -qi '<app-root' <<<"$ui"; }
+wait_for 120 "dashboard UI" dashboard_ui
+endstep
 
+if [ "$pending" != skip ]; then
 	step "iscsi: gateway, target, iscsiadm login, I/O"
 	sudo apt-get install -y -qq open-iscsi >/dev/null
 	"$here/cephadm-iscsi.sh" "$ip" "$work"
 	endstep
 else
-	echo "PENDING_FEATURES=skip: dashboard UI and iSCSI not exercised"
+	echo "PENDING_FEATURES=skip: iSCSI not exercised"
 fi
 
 step "final health"
