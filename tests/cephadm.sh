@@ -217,7 +217,7 @@ tbx ceph nfs cluster create nfs1 "1 $(hostname)"
 wait_for 300 "nfs running" daemon_running nfs
 tbx ceph nfs export create cephfs --cluster-id nfs1 --pseudo-path /cephfs --fsname cephfs
 sudo mkdir -p /mnt/nfs
-mount_nfs() { sudo mount -t nfs -o nfsvers=4.1,proto=tcp "$ip:/cephfs" /mnt/nfs; }
+mount_nfs() { timeout 30 sudo mount -t nfs -o nfsvers=4.1,proto=tcp,retry=0 "$ip:/cephfs" /mnt/nfs; }
 wait_for 120 "nfs mount" mount_nfs
 sudo dd if=/dev/urandom of=/mnt/nfs/nfsfile bs=1M count=32 conv=fsync status=none
 sudo sha256sum /mnt/nfs/nfsfile >"$work/nfs.sum"
