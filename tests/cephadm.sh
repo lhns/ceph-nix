@@ -57,7 +57,7 @@ wait_for() { # wait_for SECONDS DESCRIPTION CMD...
 }
 osds_up() { [ "$(sudo podman exec toolbox ceph osd stat -f json | jq .num_up_osds)" = 3 ]; }
 health_ok() { [ "$(sudo podman exec toolbox ceph health)" = HEALTH_OK ]; }
-mds_active() { sudo podman exec toolbox ceph fs status cephfs | grep -q active; }
+mds_active() { sudo podman exec toolbox ceph fs status cephfs -f json | jq -e '[.mdsmap[] | select(.state == "active")] | length >= 1'; }
 daemon_running() { # daemon_running TYPE
 	[ "$(sudo podman exec toolbox ceph orch ps --daemon-type "$1" -f json | jq '[.[] | select(.status_desc == "running")] | length')" -ge 1 ]
 }
@@ -169,7 +169,7 @@ sudo mkdir -p /mnt/cephfs
 # secret= given, so the host's older mount.ceph doesn't parse the keyring
 key=$(tbx ceph auth get-key client.admin)
 mount_cephfs() { sudo mount -t ceph "$ip:6789:/" /mnt/cephfs -o "name=admin,secret=$key,mds_namespace=cephfs"; }
-mount_cephfs
+wait_for 180 "cephfs mount" mount_cephfs
 sudo dd if=/dev/urandom of=/mnt/cephfs/file bs=1M count=64 conv=fsync status=none
 sudo sha256sum /mnt/cephfs/file >"$work/cephfs.sum"
 sudo umount /mnt/cephfs
