@@ -33,6 +33,13 @@
       protobuf
     ];
 
+    # CMake's FindProtobuf module defines some protobuf:: targets, then gRPC's config loads protobuf's
+    # own config and fails on the half-defined export set; use protobuf's config throughout, as the
+    # comment above this call in src/CMakeLists.txt intends.
+    postPatch = (old.postPatch or "") + ''
+      substituteInPlace src/CMakeLists.txt         --replace-fail "find_package(Protobuf REQUIRED)" "find_package(Protobuf CONFIG REQUIRED)"
+    '';
+
     cmakeFlags = old.cmakeFlags ++ [
       # 21.x clones Catch2 (unit tests only) with CPM at configure time; no network in the sandbox.
       (lib.cmakeBool "WITH_CATCH2" false)
