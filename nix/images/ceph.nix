@@ -218,8 +218,10 @@ let
     mkdir -p $out/etc/ssl/certs $out/etc/dbus-1
     ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-bundle.crt
     ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-certificates.crt
-    ln -s ${pkgs.dbus}/share/dbus-1/system.conf $out/etc/dbus-1/system.conf
-    ln -s ${pkgs.dbus}/share/dbus-1/session.conf $out/etc/dbus-1/session.conf
+    # nixpkgs' system.conf includes /etc/dbus-1/system.conf (NixOS overrides), which is itself here; its bus user is
+    # messagebus, ours is dbus (as on EL)
+    sed -e '/etc.dbus-1.system.conf/d' -e 's|<user>messagebus</user>|<user>dbus</user>|' ${pkgs.dbus}/share/dbus-1/system.conf > $out/etc/dbus-1/system.conf
+    sed -e '/etc.dbus-1.session.conf/d' ${pkgs.dbus}/share/dbus-1/session.conf > $out/etc/dbus-1/session.conf
   '';
 in
 pkgs.dockerTools.streamLayeredImage {
@@ -231,7 +233,7 @@ pkgs.dockerTools.streamLayeredImage {
   ];
 
   fakeRootCommands = ''
-    mkdir -p tmp root run/ceph run/ganesha run/dbus var/lib/ceph var/log/ceph etc/ceph
+    mkdir -p tmp root run/ceph run/ganesha run/dbus var/lib/ceph var/lib/nfs/ganesha var/log/ceph etc/ceph
     ln -s ../run var/run
     chmod 1777 tmp
     chmod 700 root
