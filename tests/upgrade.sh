@@ -305,15 +305,29 @@ wait_for 120 "nfs mount" mount_nfs || {
 }
 # a restarted ganesha is in its grace period for a while; reads must come back within a few minutes, never hang
 nfs_read() { (cd /mnt/nfs/nfsdata && sudo timeout -s KILL 20 md5sum -c "$work/nfs.md5"); }
-wait_for 300 "nfs read" nfs_read || {
-	echo "nfs data unreadable after the upgrade; ganesha state:"
+nfs_failed=
+if ! wait_for 300 "nfs read" nfs_read; then
+	nfs_failed=1
+	summary "NFS: data unreadable after the upgrade (ganesha $(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].version'))"
 	tbx ceph orch ps --daemon-type nfs || true
+	tbx rados -p .nfs -N nfs1 ls || true
+	tbx ganesha-rados-grace --pool .nfs --ns nfs1 --cephconf /etc/ceph/ceph.conf || true
 	sudo timeout 60 "$work/cephadm" logs --name "$(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].daemon_name')" 2>&1 | tail -150 || true
 	sudo timeout 20 dmesg | grep -iE 'nfs|rpc' | tail -30 || true
 	sudo umount -f -l /mnt/nfs || true
-	exit 1
-}
-sudo umount /mnt/nfs
+	# informational: does restarting the service bring it back?
+	tbx ceph orch restart nfs.nfs1 || true
+	sleep 30
+	wait_for 300 "nfs running again" daemon_running nfs || true
+	if wait_for 120 "nfs remount" mount_nfs && wait_for 300 "nfs read after restart" nfs_read; then
+		summary "NFS: readable again after ceph orch restart nfs.nfs1"
+	else
+		summary "NFS: still unreadable after ceph orch restart nfs.nfs1"
+	fi
+	sudo umount -f -l /mnt/nfs || true
+else
+	sudo umount /mnt/nfs
+fi
 python3 "$work/s3.py" get "http://$ip:8080" "$work/s3.json"
 set +x
 # and the upgraded cluster takes new writes
@@ -405,5 +419,6 @@ rollback_info() {
 rollback_info || summary "rollback result: NOT OK (informational, not gating)"
 endstep
 
+[ -z "$nfs_failed" ] || { summary "RESULT upgrade: NFS data unreadable after the upgrade (all other checks passed)"; exit 1; }
 summary "RESULT upgrade $from_image -> $to_image OK in ${upgrade_secs}s; warnings after: $(tr '
 ' ' ' <"$art/after/health-checks.txt")"
