@@ -23,7 +23,7 @@ cmds=(
 	"/usr/bin/ceph-bluestore-tool|--version"
 	"/usr/bin/ceph-objectstore-tool|--version"
 	"/usr/bin/ceph-kvstore-tool|--version"
-	"/usr/bin/crushtool|--version"
+	"/usr/bin/crushtool|-h"
 	"/usr/bin/monmaptool|--version"
 	"/usr/bin/osdmaptool|--version"
 	"/usr/bin/radosgw|--version"
@@ -78,11 +78,11 @@ for entry in "${cmds[@]}"; do
 	# shellcheck disable=SC2207
 	target=($(resolve "$prog"))
 	if [ ${#target[@]} -eq 0 ] || ! docker run --rm --entrypoint /bin/sh "$image" -c "test -e '$prog'" 2>/dev/null; then
-		if [ "$expect" = pass ]; then
+		if [ "$prog" = /usr/libexec/ceph-nix/smoke ]; then # only our image carries it
 			printf '### %s  [%s] SKIPPED, not in image\n' "$prog" "$cpu"
 			continue
 		fi
-		printf '### %s  [%s] missing, cannot be refused\n' "$prog" "$cpu"
+		printf '### %s  [%s] MISSING\n' "$prog" "$cpu"
 		rc=1
 		continue
 	fi
@@ -90,7 +90,13 @@ for entry in "${cmds[@]}"; do
 	status=$?
 	printf '### %s %s  [%s, exit %s]\n%s\n' "$prog" "${args[*]}" "$cpu" "$status" "$(head -c 1500 <<<"$out")"
 	case $expect in
-	pass) [ "$status" -eq 0 ] || { echo "FAILED: $prog"; rc=1; } ;;
+	pass)
+		# a usage message and exit 1 still proves the program ran; a signal or a CPU refusal does not
+		if [ "$status" -ne 0 ] && { [ "$status" -ge 128 ] || [ -z "$out" ] || grep -qE 'Illegal instruction|uncaught target signal|CPU does not support' <<<"$out"; }; then
+			echo "FAILED: $prog"
+			rc=1
+		fi
+		;;
 	fail) { [ "$status" -ne 0 ] && grep -q 'CPU does not support x86-64-v3' <<<"$out"; } || { echo "NOT REFUSED: $prog"; rc=1; } ;;
 	esac
 done

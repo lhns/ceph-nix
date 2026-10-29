@@ -66,7 +66,16 @@ let
       gptfdisk
       parted
       kmod
-      udev
+      systemdMinimal # udevadm
+      shadow
+      logrotate
+      quota
+      thin-provisioning-tools
+      glibc
+      keyutils
+      libcap
+      libnbd
+      glib
       cryptsetup
       nvme-cli
       smartmontools
@@ -91,7 +100,9 @@ let
     pyEnv
     ganeshaPkg
   ]
-  ++ map lib.getBin userland;
+  ++ map lib.getBin userland
+  # tools that nixpkgs puts in the default output rather than the bin one (lvm2's blkdeactivate, fsadm, ...)
+  ++ userland;
 
   pythonPath = lib.concatStringsSep ":" (
     [
@@ -118,12 +129,32 @@ let
       lvmConf
       (pkgs.writeTextDir "etc/passwd" ''
         root:x:0:0:root:/root:/bin/bash
+        daemon:x:2:2:daemon:/:/sbin/nologin
         ceph:x:167:167:Ceph daemons:/var/lib/ceph:/sbin/nologin
         dbus:x:81:81:System message bus:/:/sbin/nologin
         nobody:x:65534:65534:Kernel Overflow User:/:/sbin/nologin
       '')
       (pkgs.writeTextDir "etc/group" ''
         root:x:0:
+        daemon:x:2:
+        sys:x:3:
+        adm:x:4:
+        tty:x:5:
+        disk:x:6:
+        lp:x:7:
+        mem:x:8:
+        kmem:x:9:
+        wheel:x:10:
+        cdrom:x:11:
+        mail:x:12:
+        dialout:x:18:
+        floppy:x:19:
+        tape:x:33:
+        video:x:39:
+        audio:x:63:
+        kvm:x:36:
+        input:x:104:
+        users:x:100:
         ceph:x:167:
         dbus:x:81:
         nobody:x:65534:

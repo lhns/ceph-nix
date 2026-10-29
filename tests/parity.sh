@@ -101,7 +101,7 @@ for k in up ours; do
 	docker run --rm -i -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python3 "$img" - <"$work/mgrimport.py" >"$work/mgr-$k.txt" 2>"$work/mgr-$k.err" || cat "$work/mgr-$k.err"
 done
 echo "== mgr module imports (upstream | ours)"
-join -j2 -a1 -a2 -e '?' -o 1.1,2.1 <(sort -k2 "$work/mgr-up.txt") <(sort -k2 "$work/mgr-ours.txt") | sort -u
+join -j2 -a1 -a2 -e '?' -o 0,1.1,2.1 <(sort -k2 "$work/mgr-up.txt") <(sort -k2 "$work/mgr-ours.txt") | sort -u
 grep '^FAIL' "$work/mgr-up.txt" | sed 's/^/upstream: /'
 grep '^FAIL' "$work/mgr-ours.txt" | sed 's/^/ours:     /'
 [ -s "$work/mgr-ours.txt" ] || fail "no mgr module imported in our image"

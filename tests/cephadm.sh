@@ -86,7 +86,7 @@ step "bootstrap"
 ip=$(hostname -I | awk '{print $1}')
 sudo "$work/cephadm" --image "$local_image" bootstrap --mon-ip "$ip" --single-host-defaults --skip-monitoring-stack \
 	--initial-dashboard-user admin --initial-dashboard-password 'Admin-pass-1' --dashboard-password-noupdate \
-	--skip-pull --allow-fqdn-hostname
+	--skip-pull --allow-fqdn-hostname --no-cleanup-on-failure
 sudo podman run -d --name toolbox --net=host --privileged -v /etc/ceph:/etc/ceph --entrypoint sleep "$local_image" infinity >/dev/null
 tbx ceph -s
 tbx ceph versions
