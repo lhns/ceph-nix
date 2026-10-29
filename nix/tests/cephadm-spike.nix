@@ -347,6 +347,8 @@ pkgs.testers.runNixOSTest {
           ok(node1, "podman load -i ${cephImage}", 1800)
           ok(node1, "podman tag quay.io/ceph/ceph:v${version} ${image}")
           ok(node1, "podman push --tls-verify=false ${image}", 1800)
+          # Re-pull so the local RepoDigest is the registry's: cephadm pins that digest for other hosts.
+          ok(node1, "podman rmi quay.io/ceph/ceph:v${version} ${image} && podman pull ${image}", 1800)
 
       try:
           with subtest("bootstrap"):
