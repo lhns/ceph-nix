@@ -27,7 +27,8 @@ export KUBE_VERSION CONTAINER_CMD=docker
 ours=ghcr.io/lhns/ceph-csi-x86-64-v2:$tag
 docker pull "$ours"
 docker tag "$ours" "quay.io/cephcsi/cephcsi:$CSI_IMAGE_VERSION"
-# Rook runs this one; minikube gets it with `minikube image load` below. Not a registry name, so nothing pulls it.
+# Rook runs this one. VM_DRIVER=none (build.env): the host's docker is the node, so tagging is all it takes.
+# Not a registry name, so nothing pulls it.
 export ROOK_CEPH_CLUSTER_IMAGE=localhost/ceph-nix:e2e
 docker tag "$ceph_image" "$ROOK_CEPH_CLUSTER_IMAGE"
 
@@ -57,7 +58,6 @@ done
 sudo sysctl fs.protected_regular=0
 MEMORY=6144 scripts/minikube.sh up
 scripts/github-action-helper.sh prepare_disk
-minikube image load "$ROOK_CEPH_CLUSTER_IMAGE"
 scripts/minikube.sh cephcsi
 scripts/minikube.sh k8s-sidecar
 

@@ -92,7 +92,7 @@ for entry in "${cmds[@]}"; do
 	case $expect in
 	pass)
 		# a usage message and exit 1 still proves the program ran; a signal or a CPU refusal does not
-		if [ "$status" -ne 0 ] && { [ "$status" -ge 128 ] || [ -z "$out" ] || grep -qE 'Illegal instruction|uncaught target signal|CPU does not support' <<<"$out"; }; then
+		if [ "$status" -ne 0 ] && { [ "$status" -ge 126 ] || [ -z "$out" ] || grep -qE 'Illegal instruction|uncaught target signal|CPU does not support|error while loading shared|No such file or directory|Traceback|ModuleNotFoundError' <<<"$out"; }; then
 			echo "FAILED: $prog"
 			rc=1
 		fi

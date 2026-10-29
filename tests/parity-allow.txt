@@ -71,7 +71,6 @@
 /usr/*/ar  # binutils, ADR 0002
 /usr/*/as  # binutils, ADR 0002
 /usr/*/ld  # binutils, ADR 0002
-/usr/*/ld.*  # binutils (ld.so is glibc's loader link), ADR 0002
 /usr/*/nm  # binutils, ADR 0002
 /usr/*/objcopy  # binutils, ADR 0002
 /usr/*/objdump  # binutils, ADR 0002
@@ -114,11 +113,6 @@
 /usr/*/showkey  # kbd, ADR 0002
 /usr/*/unicode_*  # kbd, ADR 0002
 /usr/*/vlock  # kbd, ADR 0002
-/usr/*/init  # init system, ADR 0002
-/usr/*/halt  # init system, ADR 0002
-/usr/*/poweroff  # init system, ADR 0002
-/usr/*/reboot  # init system, ADR 0002
-/usr/*/shutdown  # init system, ADR 0002
 /usr/*/telinit  # init system, ADR 0002
 /usr/*/runlevel  # init system, ADR 0002
 /usr/*/rsyslogd  # no syslog daemon in a container, ADR 0002
@@ -126,9 +120,7 @@
 /usr/*/sudo*  # setuid root, which a store file can't be; containers run as root, ADR 0002
 /usr/*/visudo  # sudo, ADR 0002
 /usr/*/cvtsudoers  # sudo, ADR 0002
-/usr/*/capsh  # libcap's capsh, ADR 0002
 /usr/*/gssproxy  # Kerberos proxy daemon of EL, ADR 0002
-/usr/*/key.dns_resolver  # keyutils DNS resolver upcall, ADR 0002
 
 # PAM, cracklib, SASL, gnupg: no login stack in a container; gnupg is an RPM/dnf dependency.
 /usr/*/cracklib-*  # cracklib, ADR 0002
@@ -194,12 +186,7 @@
 /usr/*/adduser  # EL symlink to useradd, ADR 0002
 /usr/*/clock  # EL symlink to hwclock, ADR 0002
 /usr/*/fdformat  # util-linux floppy tool, not built by nixpkgs, ADR 0002
-/usr/*/iconvconfig  # glibc build-time cache tool, ADR 0002
-/usr/*/pldd  # glibc tool, ADR 0002
-/usr/*/sotruss  # glibc tool, ADR 0002
-/usr/*/sprof  # glibc tool, ADR 0002
 /usr/*/catchsegv  # glibc tool removed in glibc 2.35, ADR 0002
-/usr/*/tzselect  # glibc tz tool, ADR 0002
 /usr/*/lvm_import_vdo  # lvm2 VDO import, ADR 0002
 /usr/*/lvmpolld  # lvm2 daemon not used in containers, ADR 0002
 /usr/*/dmeventd  # device-mapper event daemon, ADR 0002
@@ -209,3 +196,29 @@
 /usr/*/view  # vim, ADR 0002
 /usr/*/rvi  # vim, ADR 0002
 /usr/*/rview  # vim, ADR 0002
+
+# Found by the first parity runs.
+/usr/*/arch  # coreutils arch, not built by nixpkgs, ADR 0002
+/usr/*/dnsdomainname  # hostname aliases that nixpkgs' hostname doesn't ship, ADR 0002
+/usr/*/domainname  # hostname alias, ADR 0002
+/usr/*/nisdomainname  # hostname alias, ADR 0002
+/usr/*/ypdomainname  # hostname alias, ADR 0002
+/usr/*/coredumpctl  # systemd userland; no init system in a container (udevadm is provided), ADR 0002
+/usr/*/hostnamectl  # systemd userland, ADR 0002
+/usr/*/localectl  # systemd userland, ADR 0002
+/usr/*/loginctl  # systemd userland, ADR 0002
+/usr/*/timedatectl  # systemd userland, ADR 0002
+/usr/*/systemd-*  # systemd userland, ADR 0002
+/usr/*/distro  # python3-distro script of EL, ADR 0002
+/usr/*/gio-querymodules*  # glib CLI, ADR 0002
+/usr/*/glib-compile-schemas  # glib CLI, ADR 0002
+/usr/*/lastlog  # shadow's login records tool, ADR 0002
+/usr/*/su  # setuid root, which a store file can't be, ADR 0002
+/usr/*/scsi-rescan  # EL symlink to rescan-scsi-bus.sh, which is provided, ADR 0002
+/usr/*/blkdeactivate  # lvm2 helper script nixpkgs doesn't install, ADR 0002
+/usr/*/fsadm  # lvm2 helper script nixpkgs doesn't install, ADR 0002
+/usr/*/lvmdump  # lvm2 helper script nixpkgs doesn't install, ADR 0002
+/usr/*/thin_metadata_pack  # thin-provisioning-tools build differs, ADR 0002
+/usr/*/thin_metadata_unpack  # thin-provisioning-tools build differs, ADR 0002
+/usr/*/thin_migrate  # thin-provisioning-tools build differs, ADR 0002
+/usr/*/update-smart-drivedb  # smartmontools script, nixpkgs ships the drive db statically, ADR 0002

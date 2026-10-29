@@ -18,6 +18,10 @@ endstep() { echo "::endgroup::"; }
 
 # Commands in a long-lived container from the image under test (host network, admin keyring).
 tbx() { sudo podman exec toolbox "$@"; }
+# krbd needs the host's /dev and /sys and udev's events; our rbd from a privileged container does that.
+rbdh() {
+	sudo podman run --rm --privileged --net=host --pid=host -v /dev:/dev -v /sys:/sys -v /run/udev:/run/udev:ro 		-v /etc/ceph:/etc/ceph --entrypoint rbd "$local_image" "$@"
+}
 
 collect() {
 	set +e
@@ -34,7 +38,7 @@ collect() {
 		tbx $c >"$art/$(tr ' ' _ <<<"$c").txt" 2>&1
 	done
 	sudo journalctl --no-pager -u 'ceph*' >"$art/journal-ceph.txt" 2>&1
-	sudo journalctl --no-pager -k >"$art/dmesg.txt" 2>&1
+	sudo journalctl --no-pager -k | grep -iE 'rbd|ceph|libceph|nfs' >"$art/dmesg.txt" 2>&1
 	sudo cp /var/log/ceph/cephadm.log "$art/" 2>/dev/null
 	sudo chmod -R a+r "$art"
 	echo "::endgroup::"
@@ -62,6 +66,7 @@ exporter_up() { curl -sf http://127.0.0.1:9926/metrics | grep -q '^ceph_'; }
 step "host packages"
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -qq
+sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
 sudo apt-get install -y -qq podman lvm2 chrony openssh-server ceph-common nfs-common python3-boto3 zstd jq xfsprogs e2fsprogs curl >/dev/null
 sudo systemctl enable --now chrony ssh
 for m in rbd ceph nfs; do
@@ -70,6 +75,10 @@ done
 endstep
 
 step "registry and image"
+# the runner's / is small; put the container storage on the big temporary disk
+sudo mkdir -p /mnt/containers
+sudo sed -i 's|^#\? *graphroot *=.*|graphroot = "/mnt/containers"|' /etc/containers/storage.conf
+grep graphroot /etc/containers/storage.conf
 printf '[[registry]]\nlocation = "localhost:5000"\ninsecure = true\n' | sudo tee /etc/containers/registries.conf.d/99-local.conf >/dev/null
 sudo podman run -d --name registry -p 5000:5000 docker.io/library/registry:2 >/dev/null
 loaded=$(zstd -dcf "$tarball" | sudo podman load | sed -n 's/^Loaded image: //p' | head -n1)
@@ -140,7 +149,7 @@ step "rbd: krbd map, mkfs.ext4, I/O"
 tbx ceph osd pool create rbd 32 >/dev/null
 tbx rbd pool init rbd
 tbx rbd create rbd/test --size 1G
-dev=$(sudo rbd map rbd/test)
+dev=$(rbdh map rbd/test)
 sudo mkfs.ext4 -q "$dev"
 sudo mkdir -p /mnt/rbd
 sudo mount "$dev" /mnt/rbd
@@ -150,18 +159,21 @@ sudo umount /mnt/rbd
 sudo mount "$dev" /mnt/rbd
 sudo sha256sum -c "$work/rbd.sum"
 sudo umount /mnt/rbd
-sudo rbd unmap "$dev"
+rbdh unmap "$dev"
 endstep
 
 step "cephfs: volume create, kernel mount, I/O"
 tbx ceph fs volume create cephfs
 wait_for 300 "mds active" mds_active
 sudo mkdir -p /mnt/cephfs
-sudo mount -t ceph "admin@.cephfs=/" /mnt/cephfs -o "mon_addr=$ip"
+# secret= given, so the host's older mount.ceph doesn't parse the keyring
+key=$(tbx ceph auth get-key client.admin)
+mount_cephfs() { sudo mount -t ceph "$ip:6789:/" /mnt/cephfs -o "name=admin,secret=$key,mds_namespace=cephfs"; }
+mount_cephfs
 sudo dd if=/dev/urandom of=/mnt/cephfs/file bs=1M count=64 conv=fsync status=none
 sudo sha256sum /mnt/cephfs/file >"$work/cephfs.sum"
 sudo umount /mnt/cephfs
-sudo mount -t ceph "admin@.cephfs=/" /mnt/cephfs -o "mon_addr=$ip"
+mount_cephfs
 sudo sha256sum -c "$work/cephfs.sum"
 sudo umount /mnt/cephfs
 endstep
@@ -216,6 +228,7 @@ wait_for 300 "cephfs-mirror running" daemon_running cephfs-mirror
 endstep
 
 step "ceph-exporter metrics"
+tbx ceph orch apply ceph-exporter
 wait_for 60 "exporter" exporter_up
 endstep
 

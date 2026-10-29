@@ -72,6 +72,7 @@ let
       quota
       thin-provisioning-tools
       glibc
+      getent
       keyutils
       libcap
       libnbd
@@ -187,6 +188,7 @@ let
         done
       done
     done
+    ln -s tar $out/usr/bin/gtar
     ln -s bin $out/usr/sbin
     ln -s usr/bin $out/bin
     ln -s usr/sbin $out/sbin
