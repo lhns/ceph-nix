@@ -26,4 +26,8 @@ with zipfile.ZipFile(dst, "a") as z:
                 path = os.path.join(dirpath, name)
                 arc = os.path.relpath(path, parent)
                 assert arc not in names, arc
-                z.write(path, arc)
+                info = zipfile.ZipInfo(arc, date_time=(1980, 1, 1, 0, 0, 0))  # store paths have mtime 1
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = 0o644 << 16
+                with open(path, "rb") as f:
+                    z.writestr(info, f.read())
