@@ -295,8 +295,8 @@ sudo truncate -s 256M /mnt/blink.img
 bdev=$(sudo losetup -f --show /mnt/blink.img)
 bname=${bdev#/dev/}
 light() { sudo "$work/cephadm" --image "$local_image" shell --fsid "$fsid" -- /usr/libexec/ceph-nix/device-light "$@" </dev/null; }
-# blinker processes against $bdev, as the host sees them (the container shares no PID namespace, but ps -e lists all)
-blinkers() { ps -eo args | grep -c "^/.*blink-disk $bdev\$" || true; }
+# running blinker containers for $bdev (cephadm names them ceph-FSID-container-blink-dev-NAME-HOST)
+blinkers() { sudo podman ps -q --filter "name=container-blink-dev-$bname-" | wc -l; }
 blinkers_are() { [ "$(blinkers)" = "$1" ]; }
 reads() { awk '{print $1}' "/sys/block/$bname/stat"; }
 # with nothing to list, ceph prints "No services reported" / "No daemons reported" instead of JSON
