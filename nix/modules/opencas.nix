@@ -292,7 +292,7 @@ in
         devices/types = [ "cas", 16 ]
         devices/obtain_device_list_from_udev = 0
         devices/scan = [ "/dev", "/dev/disk/by-id", "/dev/disk/by-path" ]
-        devices/global_filter = [ ${lib.concatMapStringsSep ", " (d: ''"r|^${d}$|"'') rawDevices}, "a|.*|" ]
+        devices/global_filter = [ ${lib.concatMapStringsSep ", " (d: ''"r|^${d}$|"'') rawDevices} ]
       '';
     }
     // lib.mapAttrs' (
