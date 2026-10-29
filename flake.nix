@@ -34,7 +34,7 @@
 
       formatter.${system} = pkgs.nixfmt;
 
-      packages.${system} = {
+      packages.${system} = import ./nix/images { inherit pkgs self; } // {
         open-cas = ocPkgs.open-cas;
         open-cas-kmod = ocPkgs.linuxPackages.open-cas;
         # Slow VM test (about 30 minutes): run by .github/workflows/vm-tests.yml, not part of `checks`.

@@ -1,0 +1,1 @@
+# mgr modules that report can_run=false in the upstream image too, one name per line, "# reason".
