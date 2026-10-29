@@ -77,7 +77,10 @@ endstep
 step "registry and image"
 # the runner's / is small; put the container storage on the big temporary disk
 sudo mkdir -p /mnt/containers
-sudo sed -i 's|^#\? *graphroot *=.*|graphroot = "/mnt/containers"|' /etc/containers/storage.conf
+printf '[storage]
+driver = "overlay"
+graphroot = "/mnt/containers"
+' | sudo tee /etc/containers/storage.conf >/dev/null
 grep graphroot /etc/containers/storage.conf
 printf '[[registry]]\nlocation = "localhost:5000"\ninsecure = true\n' | sudo tee /etc/containers/registries.conf.d/99-local.conf >/dev/null
 sudo podman run -d --name registry -p 5000:5000 docker.io/library/registry:2 >/dev/null
