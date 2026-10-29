@@ -1,8 +1,8 @@
 # The cephadm zipapp from the same Ceph source as `ceph`, made self-contained and patched.
-# nixpkgs builds it without bundled dependencies (CEPHADM_BUNDLED_DEPENDENCIES=none), so it needs jinja2 and
-# markupsafe from the host's python; the orchestrator ships /usr/sbin/cephadm to hosts that have neither (NixOS).
-# Bundle the pure-python code of both, as upstream's build.py does with pip. Then patch the units it writes to
-# carry X-StopOnRemoval=false (patch-cephadm.py), so NixOS hosts keep their daemons across a switch.
+# nixpkgs builds it without bundled dependencies (CEPHADM_BUNDLED_DEPENDENCIES=none), so it needs jinja2,
+# markupsafe and yaml from the host's python; the orchestrator ships /usr/sbin/cephadm to hosts that have none
+# of them (NixOS). Bundle the pure-python code, as upstream's build.py does with pip. Then patch the units it
+# writes to carry X-StopOnRemoval=false (patch-cephadm.py), so NixOS hosts keep their daemons across a switch.
 #
 # One cephadm for image and host: the image ships it (the mgr hands it out to the hosts), and `.host` runs the same
 # file on a NixOS host, whose python3 is not at /usr/bin/python3 by default.

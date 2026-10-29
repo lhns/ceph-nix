@@ -1,10 +1,11 @@
-"""Rewrite nixpkgs' cephadm zipapp: FHS shebang, jinja2 and markupsafe bundled."""
+"""Rewrite nixpkgs' cephadm zipapp: FHS shebang, jinja2, markupsafe and yaml bundled."""
 import os
 import sys
 import zipfile
 
 import jinja2
 import markupsafe
+import yaml
 
 src, dst = sys.argv[1:3]
 data = open(src, "rb").read()
@@ -14,13 +15,13 @@ with open(dst, "wb") as f:
 
 with zipfile.ZipFile(dst, "a") as z:
     names = set(z.namelist())
-    for mod in (jinja2, markupsafe):
+    for mod in (jinja2, markupsafe, yaml):
         root = os.path.dirname(os.path.realpath(mod.__file__))
         parent = os.path.dirname(root)
         for dirpath, dirnames, files in os.walk(root):
             dirnames[:] = [d for d in dirnames if d != "__pycache__"]
             for name in files:
-                # the C speedups can't be loaded from a zip; markupsafe falls back to pure python
+                # the C speedups can't be loaded from a zip; markupsafe and yaml fall back to pure python
                 if not name.endswith((".py", ".typed")):
                     continue
                 path = os.path.join(dirpath, name)
