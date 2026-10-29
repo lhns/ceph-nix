@@ -33,9 +33,9 @@ let
           # Ganesha 9 (upstream's image has 5) aborts without CAP_SYS_RESOURCE (PR_SET_IO_FLUSHER), which
           # cephadm's NFS containers don't get; make the option's default "tolerate failure".
           postPatch = (old.postPatch or "") + ''
-            f=$(grep -rl allow_set_io_flusher_fail src | head -n1)
-            sed -i 's/\("allow_set_io_flusher_fail",[[:space:]]*\)false/\1true/' "$f"
-            grep -q '"allow_set_io_flusher_fail",[[:space:]]*true' "$f"
+            f=src/support/nfs_read_conf.c
+            sed -i 's/\("Allow_Set_Io_Flusher_Fail",[[:space:]]*\)false/\1true/' $f
+            grep -q 'Allow_Set_Io_Flusher_Fail", true' $f
           '';
         });
 
