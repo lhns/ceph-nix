@@ -220,7 +220,8 @@ pkgs.testers.runNixOSTest {
 
 
       def run(m, cmd, timeout=900):
-          rc, out = m.execute(f"( {cmd} ) 2>&1", timeout=timeout)
+          # stdin: `cephadm shell` runs podman -i, which otherwise waits on the test backdoor's stdin
+          rc, out = m.execute(f"( {cmd} ) </dev/null 2>&1", timeout=timeout)
           print(f"[{m.name}] $ {cmd}\n[rc={rc}]\n{out}")
           return rc, out
 
@@ -236,7 +237,7 @@ pkgs.testers.runNixOSTest {
 
 
       def ceph_json(cmd):
-          rc, out = node1.execute(f"cephadm shell -- ceph {cmd} -f json 2>/dev/null", timeout=600)
+          rc, out = node1.execute(f"cephadm shell -- ceph {cmd} -f json </dev/null 2>/dev/null", timeout=600)
           assert rc == 0, f"ceph {cmd} failed"
           return json.loads(out.strip().splitlines()[-1])
 
@@ -253,7 +254,7 @@ pkgs.testers.runNixOSTest {
           start = time.time()
           last = None
           while time.time() - start < timeout:
-              rc, out = node1.execute("cephadm shell -- ceph -s -f json 2>/dev/null", timeout=600)
+              rc, out = node1.execute("cephadm shell -- ceph -s -f json </dev/null 2>/dev/null", timeout=600)
               if rc == 0:
                   s = json.loads(out.strip().splitlines()[-1])
                   health = s["health"]["status"]
