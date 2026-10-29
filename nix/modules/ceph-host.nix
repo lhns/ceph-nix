@@ -64,9 +64,10 @@ let
       '';
 
   # switch-to-configuration stops active units whose file is in /etc/systemd/system but not in the new
-  # generation, which takes every daemon down through PartOf. X-StopOnRemoval=false prevents that. The
-  # patched cephadm writes it itself; units written by an unpatched one (the mgr uses the cephadm of the
-  # image) get a drop-in, from activation and whenever cephadm changes the unit directory.
+  # generation, which takes every daemon down through PartOf. X-StopOnRemoval=false prevents that. Our
+  # cephadm (host and image) writes it itself. This is a backstop for units written by an unpatched cephadm,
+  # e.g. by an upstream image during a migration: they get a drop-in, from activation and whenever cephadm
+  # changes the unit directory.
   keepUnits = pkgs.writeShellScript "ceph-host-keep-units" ''
     PATH=${corePath}
     for f in ${upper}/ceph*.service ${upper}/ceph*.target; do
@@ -96,12 +97,12 @@ in
 
     cephadmPackage = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.callPackage ../pkgs/cephadm-host.nix { };
-      defaultText = lib.literalExpression "pkgs.callPackage ./nix/pkgs/cephadm-host.nix { }";
+      default = (pkgs.callPackage ../pkgs/cephadm.nix { }).host;
+      defaultText = lib.literalExpression "(pkgs.callPackage ./nix/pkgs/cephadm.nix { }).host";
       description = ''
-        cephadm for this host. Its unit templates carry `X-StopOnRemoval=false`. The mgr copies the
-        cephadm of the *image* to the hosts it manages, so the patch fully applies only once the
-        image ships it; the drop-in writer covers the gap.
+        cephadm for this host: the build our image ships, run with the host's python3. Its units carry
+        `X-StopOnRemoval=false`. Keep it at the Ceph release of `image`; the drop-in writer covers units
+        written by an unpatched cephadm (an upstream image).
       '';
     };
 
