@@ -136,6 +136,8 @@ sudo podman tag "$loaded" "$to_image"
 sudo podman push --tls-verify=false "$to_image"
 # the hosts must pull it from the registry like any user's would
 sudo podman rmi "$loaded" "$to_image" >/dev/null
+# what the starting image ships for NFS (the pin in nix/pkgs/nfs-ganesha.nix must match this)
+sudo podman run --rm --entrypoint rpm "$from_image" -q nfs-ganesha nfs-ganesha-ceph nfs-ganesha-rgw nfs-ganesha-rados-grace nfs-ganesha-rados-urls || true
 # the cephadm the starting image ships, as a user would have it
 sudo podman run --rm --entrypoint cat "$from_image" /usr/sbin/cephadm >"$work/cephadm"
 chmod +x "$work/cephadm"
