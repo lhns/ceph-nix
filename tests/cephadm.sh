@@ -166,9 +166,14 @@ step "cephfs: volume create, kernel mount, I/O"
 tbx ceph fs volume create cephfs
 wait_for 300 "mds active" mds_active
 sudo mkdir -p /mnt/cephfs
-# secret= given, so the host's older mount.ceph doesn't parse the keyring
+# Tentacle's new cephx key type is beyond the host's older mount.ceph, so mount with our image's mount.ceph from a
+# container whose mount propagates to the host.
 key=$(tbx ceph auth get-key client.admin)
-mount_cephfs() { sudo mount -t ceph "$ip:6789:/" /mnt/cephfs -o "name=admin,secret=$key,mds_namespace=cephfs"; }
+sudo mount --bind /mnt/cephfs /mnt/cephfs
+sudo mount --make-shared /mnt/cephfs
+mount_cephfs() {
+	sudo podman run --rm --privileged --net=host -v /etc/ceph:/etc/ceph -v /mnt/cephfs:/mnt/cephfs:rshared --entrypoint mount 		"$local_image" -t ceph "$ip:6789:/" /mnt/cephfs -o "name=admin,secret=$key,mds_namespace=cephfs"
+}
 wait_for 180 "cephfs mount" mount_cephfs
 sudo dd if=/dev/urandom of=/mnt/cephfs/file bs=1M count=64 conv=fsync status=none
 sudo sha256sum /mnt/cephfs/file >"$work/cephfs.sum"
