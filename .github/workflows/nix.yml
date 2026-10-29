@@ -22,14 +22,15 @@ jobs:
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
-      # No local Nix on the dev machine: branches get their flake.lock written here.
-      - name: flake.lock
+      # No local Nix on the dev machine: branches get flake.lock and formatting written here.
+      - name: flake.lock and nixfmt
         if: github.event_name == 'push' && github.ref != 'refs/heads/main'
         run: |
           nix flake lock
-          if ! git diff --quiet -- flake.lock || [ -n "$(git status --porcelain -- flake.lock)" ]; then
-            git -c user.name=github-actions -c user.email=noreply@github.com commit -m "Update flake.lock" -- flake.lock ||
-              { git add flake.lock && git -c user.name=github-actions -c user.email=noreply@github.com commit -m "Update flake.lock"; }
+          git ls-files -z '*.nix' | xargs -0 nix fmt --
+          git add -A
+          if ! git diff --cached --quiet; then
+            git -c user.name=github-actions -c user.email=noreply@github.com commit -m "Update flake.lock, nixfmt"
             git push
           fi
       - run: nix flake check -L
