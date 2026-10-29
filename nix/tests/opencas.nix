@@ -112,6 +112,8 @@ pkgs.testers.runNixOSTest {
         machine.start()
         machine.wait_for_unit("multi-user.target")
         machine.wait_for_unit("open-cas.service")
+        print(machine.execute("pvs -a; dmsetup ls; lvmconfig devices/global_filter devices/scan; "
+                              "ls -l /dev/disk/by-id; journalctl -b --no-pager | grep -iE 'lvm|pvscan|vgcas'")[1])
         machine.succeed("casadm -L -o csv | grep -E '^cache,1,.*Running'")
         machine.succeed("casadm -L -o csv | grep -E '^core,1,.*Active'")
         machine.fail("dmesg | grep -F 'did not shut down properly'")
