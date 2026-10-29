@@ -171,6 +171,15 @@ let
         dbus:x:81:
         nobody:x:65534:
       '')
+      (pkgs.writeTextDir "etc/rpc" ''
+        portmapper 100000 portmap sunrpc
+        rstatd 100001 rstat rup perfmeter
+        nfs 100003 nfsprog
+        mountd 100005 mount showmount
+        nlockmgr 100021
+        status 100024
+        rquotad 100011 rquotaprog quota rquota
+      '')
       (pkgs.writeTextDir "etc/nsswitch.conf" ''
         passwd: files
         group: files
@@ -216,6 +225,9 @@ let
       ln -s ${smoke}/libexec/ceph-nix/smoke $out/usr/libexec/ceph-nix/smoke
     ''}
     mkdir -p $out/etc/ssl/certs $out/etc/dbus-1
+    # the RPC library (ganesha's registration with rpcbind) needs netconfig, protocols, services and rpc
+    for f in netconfig; do ln -s ${pkgs.libtirpc}/etc/$f $out/etc/$f; done
+    for f in protocols services; do ln -s ${pkgs.iana-etc}/etc/$f $out/etc/$f; done
     ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-bundle.crt
     ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-certificates.crt
     # nixpkgs' system.conf includes /etc/dbus-1/system.conf (NixOS overrides), which is itself here; its bus user is
