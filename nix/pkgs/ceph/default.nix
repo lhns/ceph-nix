@@ -22,11 +22,12 @@
       dependencies = old.dependencies ++ [ final.ceph-python.pkgs.cryptography ];
     });
   }
-)).ceph.overrideAttrs (old: {
-  cmakeFlags = old.cmakeFlags ++ [
-    # 21.x fetches Catch2 (unit tests only) with CPM at configure time; no network in the sandbox.
-    (lib.cmakeBool "WITH_CATCH2" false)
-    # Fail fast instead of trying to download anything else at configure time.
-    (lib.cmakeBool "FETCHCONTENT_FULLY_DISCONNECTED" true)
-  ];
-})
+)).ceph.overrideAttrs
+  (old: {
+    cmakeFlags = old.cmakeFlags ++ [
+      # 21.x fetches Catch2 (unit tests only) with CPM at configure time; no network in the sandbox.
+      (lib.cmakeBool "WITH_CATCH2" false)
+      # Fail fast instead of trying to download anything else at configure time.
+      (lib.cmakeBool "FETCHCONTENT_FULLY_DISCONNECTED" true)
+    ];
+  })
