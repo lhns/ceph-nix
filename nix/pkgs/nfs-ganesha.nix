@@ -22,7 +22,7 @@ pkgs.stdenv.mkDerivation (finalAttrs: {
     repo = "nfs-ganesha";
     tag = "V${finalAttrs.version}";
     fetchSubmodules = true; # the bundled nTIRPC of this release; nixpkgs' is for 9.x
-    hash = lib.fakeHash;
+    hash = "sha256-cqX69vc9wPklguqXMnp75zai6vtBrl6IgfwFbNHaKBA=";
   };
 
   # 5.9's CMakeLists has the same dbus block as 9.x (offset only)
