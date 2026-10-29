@@ -306,7 +306,10 @@ pkgs.testers.runNixOSTest {
 
       def switch(m):
           before = daemon_starts(m)
-          ok(m, "/run/current-system/bin/switch-to-configuration test", 900)
+          rc, out = run(m, "/run/current-system/bin/switch-to-configuration test", 900)
+          # rc 4 = only the root *user* manager failed to reload (the orchestrator's ssh sessions keep
+          # one alive); unrelated to the system units checked here.
+          assert rc == 0 or (rc == 4 and "user activation for root failed" in out), rc
           time.sleep(30)
           after = daemon_starts(m)
           restarted = sorted(u for u in before if before[u] != after.get(u))
