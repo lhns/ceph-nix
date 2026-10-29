@@ -27,7 +27,7 @@ done
 # the mgr tree is compared file by file (module code, dashboard frontend), the rest by directory entry
 run "$up" 'for d in /usr/bin /usr/sbin /usr/libexec/ceph /usr/lib64/ceph; do
 	ls -A "$d" 2>/dev/null | sed "s|^|$d/|"; done
-	find /usr/share/ceph/mgr \( -type f -o -type l \) ! -path '*/__pycache__/*' ! -name '*.pyc' 2>/dev/null; true' </dev/null | sort -u >"$work/upstream.txt"
+	find /usr/share/ceph/mgr \( -type f -o -type l \) ! -path "*/__pycache__/*" ! -name "*.pyc" 2>/dev/null; true' </dev/null | sort -u >"$work/upstream.txt"
 echo "upstream entries: $(wc -l <"$work/upstream.txt")"
 # upstream's /usr/sbin may be /usr/bin (merged usr): an entry exists if it does in either place
 run "$ours" 'while read -r p; do [ -e "$p" ] || echo "$p"; done' <"$work/upstream.txt" | sort -u >"$work/missing.txt"
