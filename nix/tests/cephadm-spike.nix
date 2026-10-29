@@ -12,7 +12,7 @@ let
   cephImage = pkgs.dockerTools.pullImage {
     imageName = "quay.io/ceph/ceph";
     imageDigest = "sha256:403c079a3f1efa7b58895750e9dd18c6da4701e60b746b084385c8cc545877b6";
-    hash = lib.fakeHash;
+    hash = "sha256-l/1Eyay6CUxLYkj1NBFPGxHQh278U4w63csVZB3IQwM=";
     finalImageName = "quay.io/ceph/ceph";
     finalImageTag = "v${version}";
     os = "linux";
