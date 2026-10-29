@@ -218,6 +218,13 @@ wait_for 300 "nfs running" daemon_running nfs
 tbx ceph nfs export create cephfs --cluster-id nfs1 --pseudo-path /cephfs --fsname cephfs
 sudo mkdir -p /mnt/nfs
 mount_nfs() { timeout 30 sudo mount -v -t nfs -o nfsvers=4.1,proto=tcp,retry=0 "$ip:/cephfs" /mnt/nfs 2>&1 | tee -a "$art/nfs-mount.log"; [ "${PIPESTATUS[0]}" = 0 ]; }
+# Ganesha picks a new export up through its RADOS watch; if that didn't happen (noted in the log), restart the daemon.
+if ! wait_for 30 "nfs live export reload" mount_nfs; then
+	echo "NOTE: ganesha did not load the new export live; restarting the nfs service"
+	tbx ceph orch restart nfs.nfs1
+	sleep 20
+	wait_for 300 "nfs running again" daemon_running nfs
+fi
 wait_for 120 "nfs mount" mount_nfs || { cat "$art/nfs-mount.log"; tbx ceph nfs export ls nfs1 --detailed; tbx ceph nfs cluster info nfs1; false; }
 sudo dd if=/dev/urandom of=/mnt/nfs/nfsfile bs=1M count=32 conv=fsync status=none
 sudo sha256sum /mnt/nfs/nfsfile >"$work/nfs.sum"
