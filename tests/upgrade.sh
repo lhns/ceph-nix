@@ -10,7 +10,9 @@
 #                       a reference; empty = skip). Only meaningful at the same version: a downgrade is refused.
 #      UPGRADE_TIMEOUT  seconds to wait for each upgrade (default 3000)
 #      ARTIFACT_DIR     where logs go (default ./upgrade-logs); before/ and after/ hold the compared state
-# Allowed health warnings: none (HEALTH_OK before and after; transient UPGRADE_NO_STANDBY_MGR is only logged).
+# Health: strictly HEALTH_OK before the upgrade. Afterwards only ALLOWED_WARNINGS (default: the two
+# AUTH_INSECURE_KEYS_* checks cephadm's Tentacle upgrade leaves behind after rotating daemon keys; the admin clears
+# them once old-style keys are gone). Transient UPGRADE_NO_STANDBY_MGR is only logged.
 # Mgr modules: no module may be unable to run after the upgrade that could run before.
 set -Eeuo pipefail
 from=$1
@@ -18,6 +20,7 @@ tarball=$(realpath "$2")
 here=$(cd "$(dirname "$0")" && pwd)
 art=${ARTIFACT_DIR:-$PWD/upgrade-logs}
 limit=${UPGRADE_TIMEOUT:-3000}
+allowed=${ALLOWED_WARNINGS-AUTH_INSECURE_KEYS_ALLOWED AUTH_INSECURE_KEYS_CREATABLE}
 work=$(sudo mktemp -d /mnt/upgrade-test.XXXX)
 sudo chown "$USER" "$work"
 mkdir -p "$art/before" "$art/after"
@@ -61,8 +64,18 @@ upgrade_wait() {
 	local label=$1 t0=$SECONDS st health bad
 	while ((SECONDS - t0 < limit)); do
 		sleep 20
-		if ! st=$(timeout 90 sudo podman exec toolbox ceph orch upgrade status -f json 2>/dev/null) || ! jq -e . <<<"$st" >/dev/null 2>&1; then
+		if ! st=$(timeout 90 sudo podman exec toolbox ceph orch upgrade status -f json 2>/dev/null); then
 			echo "[$label +$((SECONDS - t0))s] upgrade status unavailable (mgr restarting?)"
+			continue
+		fi
+		# once finished, cephadm answers in plain text rather than JSON
+		if grep -q 'no upgrades in progress' <<<"$st"; then
+			echo "[$label +$((SECONDS - t0))s] $st"
+			upgrade_secs=$((SECONDS - t0))
+			return 0
+		fi
+		if ! jq -e . <<<"$st" >/dev/null 2>&1; then
+			echo "[$label +$((SECONDS - t0))s] unparseable upgrade status: $st"
 			continue
 		fi
 		health=$(timeout 90 sudo podman exec toolbox ceph health detail -f json 2>/dev/null | jq -r '.checks // {} | keys | join(",")' || true)
@@ -81,9 +94,15 @@ upgrade_wait() {
 	echo "upgrade timed out after ${limit}s"
 	return 1
 }
-settle() { # all daemons running, 3 OSDs up, HEALTH_OK
+# no health check outside $allowed
+health_ok_allowed() {
+	local n
+	n=$(sudo podman exec toolbox ceph health detail -f json | jq --arg a "$allowed" '[.checks // {} | keys[] | select(. as $k | ($a | split(" ") | index($k)) == null)] | length') || return 1
+	[ "$n" = 0 ]
+}
+settle() { # settle SECONDS [health_fn]: 3 OSDs up and healthy
 	wait_for 600 "3 OSDs up" osds_up
-	wait_for "${1:-900}" "HEALTH_OK" health_ok || { tbx ceph health detail; return 1; }
+	wait_for "${1:-900}" "healthy (${2:-health_ok})" "${2:-health_ok}" || { tbx ceph health detail; return 1; }
 }
 
 step "host packages, registry"
@@ -232,8 +251,14 @@ tbx ceph log last 200 info cephadm >"$art/after/cephadm-log.txt" || true
 endstep
 
 step "after: health, versions, images"
-settle 900
+settle 900 health_ok_allowed
 tbx ceph -s
+tbx ceph health detail || true
+echo "== warnings still present (allowed: ${allowed:-none})"
+tbx ceph health detail -f json | jq -r '.checks // {} | keys[]' | tee "$art/after/health-checks.txt"
+tbx ceph config dump >"$art/after/config-dump.txt" || true
+tbx ceph config ls 2>/dev/null | grep -iE 'insecure|cipher' | tee "$art/after/auth-options.txt" || true
+tbx ceph config show "mon.$(hostname)" 2>/dev/null | grep -iE 'insecure|cipher' || true
 snapshot "$art/after"
 orch_ps | jq -r '.[] | [.daemon_name, .version, .status_desc, .container_image_name] | @tsv'
 # every daemon on our image id and name
@@ -245,7 +270,6 @@ bad=$(jq -r --arg id "$want_id" '.[] | select(((.container_image_id // "") | ltr
 got_version=$(jq -r '.overall | keys[0]' "$art/after/versions.json" | sed -E 's/^(ceph version [^ ]+ \([0-9a-f]+\)).*/\1/')
 [ "$got_version" = "$want_version" ] || { echo "version $got_version != $want_version"; exit 1; }
 [ "$(tbx ceph config get mgr container_image | tr -d '\r')" != "$from_image" ]
-tbx ceph health detail | grep -x HEALTH_OK
 endstep
 
 step "after: data intact"
@@ -330,7 +354,7 @@ restarted() {
 		[ "$(jq -n --argjson a "$before_started" --argjson b "$now" '[$b | to_entries[] | select($a[.key] == .value)] | length')" = 0 ]
 }
 wait_for 600 "mon and osd daemons restarted and running" restarted || { orch_ps | jq -r '.[] | [.daemon_name, .status_desc, .started] | @tsv'; exit 1; }
-settle 600
+settle 600 health_ok_allowed
 tbx ceph -s
 endstep
 
@@ -346,9 +370,11 @@ rollback_info() {
 	tbx ceph versions
 	tbx ceph -s
 	if [ -n "$bad" ]; then summary "rollback: finished in $((SECONDS - t0))s but daemons not on $rollback: $bad"; return 1; fi
-	summary "rollback to $rollback: OK in $((SECONDS - t0))s, health $(tbx ceph health)"
+	summary "rollback to $rollback: OK in $((SECONDS - t0))s, health: $(tbx ceph health detail | head -3 | tr '
+' ' ')"
 }
 rollback_info || summary "rollback result: NOT OK (informational, not gating)"
 endstep
 
-summary "RESULT upgrade $from_image -> $to_image OK in ${upgrade_secs}s"
+summary "RESULT upgrade $from_image -> $to_image OK in ${upgrade_secs}s; warnings after: $(tr '
+' ' ' <"$art/after/health-checks.txt")"
