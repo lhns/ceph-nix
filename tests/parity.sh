@@ -25,7 +25,8 @@ done
 
 # --- file tree
 run "$up" 'for d in /usr/bin /usr/sbin /usr/libexec/ceph /usr/lib64/ceph /usr/share/ceph/mgr; do
-	ls -A "$d" | sed "s|^|$d/|"; done' </dev/null | sort -u >"$work/upstream.txt"
+	ls -A "$d" | sed "s|^|$d/|"; done
+	p=/usr/share/ceph/mgr/dashboard/frontend/dist; [ -e "$p" ] && echo "$p"; true' </dev/null | sort -u >"$work/upstream.txt"
 echo "upstream entries: $(wc -l <"$work/upstream.txt")"
 # upstream's /usr/sbin may be /usr/bin (merged usr): an entry exists if it does in either place
 run "$ours" 'while read -r p; do [ -e "$p" ] || echo "$p"; done' <"$work/upstream.txt" | sort -u >"$work/missing.txt"

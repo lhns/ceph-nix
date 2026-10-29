@@ -1,0 +1,211 @@
+# Accepted deviations from quay.io/ceph/ceph (tests/parity.sh). One shell glob per line, matched against full paths
+# (/usr/*/x covers /usr/bin and /usr/sbin), then "# reason, ADR 0002". Gaps the Umbrella build closes belong in
+# parity-pending.txt instead.
+
+# Upstream is a CentOS/Rocky userland; the entries below are tools of that distribution, not of Ceph.
+
+# RPM, dnf and EL system configuration: no package manager in a Nix image.
+/usr/*/rpm*  # RPM tools, ADR 0002
+/usr/*/dnf*  # dnf, ADR 0002
+/usr/*/yum  # dnf alias, ADR 0002
+/usr/*/crb  # EL repository helper, ADR 0002
+/usr/*/ca-legacy  # EL CA trust tooling, ADR 0002
+/usr/*/update-ca-trust  # EL CA trust tooling, ADR 0002
+/usr/*/update-crypto-policies  # EL crypto-policies, ADR 0002
+/usr/*/fips-*  # EL FIPS tooling, ADR 0002
+/usr/*/trust  # p11-kit trust CLI of EL's CA store, ADR 0002
+/usr/*/p11-kit  # p11-kit CLI of EL's CA store, ADR 0002
+/usr/*/alternatives  # EL alternatives system, ADR 0002
+/usr/*/update-alternatives  # EL alternatives system, ADR 0002
+/usr/*/modulemd-validator  # dnf modularity, ADR 0002
+/usr/*/*-dummy-cert  # EL certificate helper, ADR 0002
+/usr/*/cyrusbdb2current  # EL cyrus-sasl migration helper, ADR 0002
+/usr/*/weak-modules  # EL kernel module helper, ADR 0002
+/usr/*/kernel-install  # EL kernel helper, ADR 0002
+/usr/*/ima-*  # IMA signing tools of EL, ADR 0002
+/usr/*/evmctl  # IMA/EVM tools of EL, ADR 0002
+
+# SELinux userland: upstream removes /etc/selinux itself; a Nix image carries no policy tooling.
+/usr/*/audit2*  # SELinux, ADR 0002
+/usr/*/avcstat  # SELinux, ADR 0002
+/usr/*/check*module  # SELinux, ADR 0002
+/usr/*/checkpolicy  # SELinux, ADR 0002
+/usr/*/chcat  # SELinux, ADR 0002
+/usr/*/secon  # SELinux, ADR 0002
+/usr/*/sedis*  # SELinux sedismod/sedispol, ADR 0002
+/usr/*/semodule*  # SELinux, ADR 0002
+/usr/*/sestatus  # SELinux, ADR 0002
+/usr/*/semanage  # SELinux, ADR 0002
+/usr/*/sefcontext_compile  # SELinux, ADR 0002
+/usr/*/selabel_*  # SELinux, ADR 0002
+/usr/*/selinux*  # SELinux, ADR 0002
+/usr/*/fixfiles  # SELinux, ADR 0002
+/usr/*/genhomedircon  # SELinux, ADR 0002
+/usr/*/getenforce  # SELinux, ADR 0002
+/usr/*/setenforce  # SELinux, ADR 0002
+/usr/*/getsebool  # SELinux, ADR 0002
+/usr/*/setsebool  # SELinux, ADR 0002
+/usr/*/getpolicyload  # SELinux, ADR 0002
+/usr/*/getpidprevcon  # SELinux, ADR 0002
+/usr/*/load_policy  # SELinux, ADR 0002
+/usr/*/matchpathcon  # SELinux, ADR 0002
+/usr/*/restorecon*  # SELinux, ADR 0002
+/usr/*/setfiles  # SELinux, ADR 0002
+/usr/*/validatetrans  # SELinux, ADR 0002
+
+# C toolchain: upstream installs gcc only for luarocks (Containerfile). We ship luarocks without a compiler, so
+# rgw Lua packages with native code can't be built in the image.
+/usr/*/gcc*  # gcc, ADR 0002
+/usr/*/cc  # gcc, ADR 0002
+/usr/*/c89  # gcc, ADR 0002
+/usr/*/c99  # gcc, ADR 0002
+/usr/*/cpp  # gcc, ADR 0002
+/usr/*/c++filt  # binutils, ADR 0002
+/usr/*/x86_64-redhat-*  # gcc, ADR 0002
+/usr/*/gcov*  # gcc, ADR 0002
+/usr/*/lto-dump  # gcc, ADR 0002
+/usr/*/gprof  # binutils, ADR 0002
+/usr/*/dwp  # binutils, ADR 0002
+/usr/*/elfedit  # binutils, ADR 0002
+/usr/*/addr2line  # binutils, ADR 0002
+/usr/*/ar  # binutils, ADR 0002
+/usr/*/as  # binutils, ADR 0002
+/usr/*/ld  # binutils, ADR 0002
+/usr/*/ld.*  # binutils (ld.so is glibc's loader link), ADR 0002
+/usr/*/nm  # binutils, ADR 0002
+/usr/*/objcopy  # binutils, ADR 0002
+/usr/*/objdump  # binutils, ADR 0002
+/usr/*/ranlib  # binutils, ADR 0002
+/usr/*/readelf  # binutils, ADR 0002
+/usr/*/size  # binutils, ADR 0002
+/usr/*/strings  # binutils, ADR 0002
+/usr/*/strip  # binutils, ADR 0002
+/usr/*/make  # gcc toolchain, ADR 0002
+/usr/*/gmake  # gcc toolchain, ADR 0002
+/usr/*/pkg-config  # gcc toolchain, ADR 0002
+/usr/*/pkgconf  # gcc toolchain, ADR 0002
+/usr/*/*-pkg-config  # gcc toolchain, ADR 0002
+/usr/*/gdbserver  # gdb, ADR 0002
+/usr/*/debuginfod-find  # elfutils debuginfo client, ADR 0002
+/usr/*/protoc  # protobuf-compiler, build-time dependency of EL packaging, ADR 0002
+/usr/*/thrift  # thrift compiler, build-time dependency of EL packaging, ADR 0002
+
+# Console, login and init: meaningless in a container.
+/usr/*/chvt  # kbd, ADR 0002
+/usr/*/deallocvt  # kbd, ADR 0002
+/usr/*/dumpkeys  # kbd, ADR 0002
+/usr/*/fgconsole  # kbd, ADR 0002
+/usr/*/getkeycodes  # kbd, ADR 0002
+/usr/*/kbd_mode  # kbd, ADR 0002
+/usr/*/kbdinfo  # kbd, ADR 0002
+/usr/*/kbdrate  # kbd, ADR 0002
+/usr/*/loadkeys  # kbd, ADR 0002
+/usr/*/loadunimap  # kbd, ADR 0002
+/usr/*/mapscrn  # kbd, ADR 0002
+/usr/*/openvt  # kbd, ADR 0002
+/usr/*/psf*  # kbd, ADR 0002
+/usr/*/resizecons  # kbd, ADR 0002
+/usr/*/setfont  # kbd, ADR 0002
+/usr/*/setkeycodes  # kbd, ADR 0002
+/usr/*/setleds  # kbd, ADR 0002
+/usr/*/setmetamode  # kbd, ADR 0002
+/usr/*/setvtrgb  # kbd, ADR 0002
+/usr/*/showconsolefont  # kbd, ADR 0002
+/usr/*/showkey  # kbd, ADR 0002
+/usr/*/unicode_*  # kbd, ADR 0002
+/usr/*/vlock  # kbd, ADR 0002
+/usr/*/init  # init system, ADR 0002
+/usr/*/halt  # init system, ADR 0002
+/usr/*/poweroff  # init system, ADR 0002
+/usr/*/reboot  # init system, ADR 0002
+/usr/*/shutdown  # init system, ADR 0002
+/usr/*/telinit  # init system, ADR 0002
+/usr/*/runlevel  # init system, ADR 0002
+/usr/*/rsyslogd  # no syslog daemon in a container, ADR 0002
+/usr/*/dbus-broker*  # Rocky runs dbus-broker; dbus-daemon, which cephadm's NFS uses, is there, ADR 0002
+/usr/*/sudo*  # setuid root, which a store file can't be; containers run as root, ADR 0002
+/usr/*/visudo  # sudo, ADR 0002
+/usr/*/cvtsudoers  # sudo, ADR 0002
+/usr/*/capsh  # libcap's capsh, ADR 0002
+/usr/*/gssproxy  # Kerberos proxy daemon of EL, ADR 0002
+/usr/*/key.dns_resolver  # keyutils DNS resolver upcall, ADR 0002
+
+# PAM, cracklib, SASL, gnupg: no login stack in a container; gnupg is an RPM/dnf dependency.
+/usr/*/cracklib-*  # cracklib, ADR 0002
+/usr/*/create-cracklib-dict  # cracklib, ADR 0002
+/usr/*/mkdict  # cracklib, ADR 0002
+/usr/*/packer  # cracklib, ADR 0002
+/usr/*/pwmake  # cracklib, ADR 0002
+/usr/*/pwscore  # cracklib, ADR 0002
+/usr/*/pwhistory_helper  # PAM, ADR 0002
+/usr/*/pam_*  # PAM helpers, ADR 0002
+/usr/*/unix_*  # PAM helpers, ADR 0002
+/usr/*/faillock  # PAM, ADR 0002
+/usr/*/mkhomedir_helper  # PAM, ADR 0002
+/usr/*/sasl*  # cyrus-sasl database tools, ADR 0002
+/usr/*/gpg*  # gnupg, ADR 0002
+/usr/*/dirmngr*  # gnupg, ADR 0002
+/usr/*/g13*  # gnupg, ADR 0002
+/usr/*/watchgnupg  # gnupg, ADR 0002
+/usr/*/addgnupghome  # gnupg, ADR 0002
+/usr/*/applygnupgdefaults  # gnupg, ADR 0002
+
+# Bash builtins that Fedora's bash package also ships as /usr/bin scripts.
+/usr/bin/alias  # POSIX builtin wrapper, ADR 0002
+/usr/bin/bg  # POSIX builtin wrapper, ADR 0002
+/usr/bin/cd  # POSIX builtin wrapper, ADR 0002
+/usr/bin/command  # POSIX builtin wrapper, ADR 0002
+/usr/bin/fc  # POSIX builtin wrapper, ADR 0002
+/usr/bin/fg  # POSIX builtin wrapper, ADR 0002
+/usr/bin/getopts  # POSIX builtin wrapper, ADR 0002
+/usr/bin/hash  # POSIX builtin wrapper, ADR 0002
+/usr/bin/jobs  # POSIX builtin wrapper, ADR 0002
+/usr/bin/read  # POSIX builtin wrapper, ADR 0002
+/usr/bin/type  # POSIX builtin wrapper, ADR 0002
+/usr/bin/ulimit  # POSIX builtin wrapper, ADR 0002
+/usr/bin/umask  # POSIX builtin wrapper, ADR 0002
+/usr/bin/unalias  # POSIX builtin wrapper, ADR 0002
+/usr/bin/wait  # POSIX builtin wrapper, ADR 0002
+/usr/bin/bashbug*  # bash bug reporting, ADR 0002
+
+# Python 3.9 specific names of EL's python packages (ours is 3.12) and their EL-only entry points.
+/usr/*/*3.9*  # python 3.9 versioned names, ADR 0002
+/usr/*/*-3  # EL's versioned python entry points (jsonpatch-3, pyrsa-*-3), ADR 0002
+/usr/*/pyrsa-*  # python3-rsa scripts, a dependency of EL's google-auth, not used by Ceph, ADR 0002
+/usr/*/chardetect  # python3-chardet script, ADR 0002
+/usr/*/f2py*  # numpy build tool entry points, ADR 0002
+/usr/*/pathfix*  # python3.9 tooling, ADR 0002
+/usr/*/pygettext*  # python3.9 tooling, ADR 0002
+/usr/*/msgfmt*  # python3.9 tooling, ADR 0002
+/usr/*/flask*  # python3-flask script (ceph-iscsi's REST API is the only user), ADR 0002
+
+# Small tools that nixpkgs lacks or builds without; not used by Ceph or Rook.
+/usr/*/xmllint  # libxml2 CLI, ADR 0002
+/usr/*/xmlcatalog  # libxml2 CLI, ADR 0002
+/usr/*/xsltproc  # libxslt CLI, ADR 0002
+/usr/*/xmlsec1  # xmlsec CLI; the python3-saml module is shipped, ADR 0002
+/usr/*/xmlwf  # expat CLI, ADR 0002
+/usr/*/flexiblas  # BLAS switcher, ADR 0002
+/usr/*/fuse2fs  # e2fsprogs fuse driver, ADR 0002
+/usr/*/skill  # procps 3 tools dropped in procps 4, ADR 0002
+/usr/*/snice  # procps 3 tools dropped in procps 4, ADR 0002
+/usr/*/blkmapd  # nfs-utils pNFS block layout, not built by nixpkgs, ADR 0002
+/usr/*/nfsdcltrack  # nfs-utils kernel-server helper, ADR 0002
+/usr/*/adduser  # EL symlink to useradd, ADR 0002
+/usr/*/clock  # EL symlink to hwclock, ADR 0002
+/usr/*/fdformat  # util-linux floppy tool, not built by nixpkgs, ADR 0002
+/usr/*/iconvconfig  # glibc build-time cache tool, ADR 0002
+/usr/*/pldd  # glibc tool, ADR 0002
+/usr/*/sotruss  # glibc tool, ADR 0002
+/usr/*/sprof  # glibc tool, ADR 0002
+/usr/*/catchsegv  # glibc tool removed in glibc 2.35, ADR 0002
+/usr/*/tzselect  # glibc tz tool, ADR 0002
+/usr/*/lvm_import_vdo  # lvm2 VDO import, ADR 0002
+/usr/*/lvmpolld  # lvm2 daemon not used in containers, ADR 0002
+/usr/*/dmeventd  # device-mapper event daemon, ADR 0002
+/usr/*/dmfilemapd  # device-mapper daemon, ADR 0002
+/usr/*/vi  # vim, a convenience editor only, ADR 0002
+/usr/*/ex  # vim, ADR 0002
+/usr/*/view  # vim, ADR 0002
+/usr/*/rvi  # vim, ADR 0002
+/usr/*/rview  # vim, ADR 0002
