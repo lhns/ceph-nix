@@ -244,9 +244,19 @@ pkgs.testers.runNixOSTest {
           ok(m, "findmnt /etc/systemd/system && ls /etc/systemd/system | grep -E '^ceph'")
 
 
+      def kernel_key():
+          # Ceph 21 creates AES256KRB5 keys by default, which the kernel client cannot parse (EINVAL
+          # on rbd map / cephfs mount); a client that maps or mounts needs an `aes` key. The mon warns
+          # about insecure client keys, so mute that.
+          key = quiet("ceph auth get-or-create-key client.kern mon 'allow *' osd 'allow *' mds 'allow *' --key_type aes")
+          assert key.startswith("AQ"), key
+          ceph("health mute AUTH_INSECURE_CLIENT_KEY_TYPE --sticky")
+          return key
+
+
       def map_rbd():
-          key = quiet("ceph auth get-key client.admin")
-          rc, _ = run(node1, f"echo '{ip1}:6789 name=admin,secret={key} rbd test' > /sys/bus/rbd/add")
+          key = kernel_key()
+          rc, _ = run(node1, f"echo '{ip1}:6789 name=kern,secret={key} rbd test' > /sys/bus/rbd/add")
           if rc != 0:
               run(node1, "dmesg | tail -40; lsmod | grep -E 'rbd|ceph|libceph'")
               raise Exception("rbd map failed")
@@ -254,9 +264,9 @@ pkgs.testers.runNixOSTest {
 
 
       def mount_cephfs():
-          key = quiet("ceph auth get-key client.admin")
+          key = kernel_key()
           node1.succeed("mkdir -p /mnt/cephfs")
-          node1.succeed(f"mount -t ceph {ip1}:6789:/ /mnt/cephfs -o name=admin,secret={key}")
+          node1.succeed(f"mount -t ceph {ip1}:6789:/ /mnt/cephfs -o name=kern,secret={key}")
 
 
       def unmount_clients():
