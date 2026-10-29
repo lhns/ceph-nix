@@ -144,6 +144,10 @@ let
       # cephadm writes /etc/logrotate.d/{cephadm,ceph-<fsid>}; NixOS's logrotate ignores that dir.
       services.logrotate.settings.header.include = "/etc/logrotate.d";
       services.logrotate.checkConfig = false; # the build sandbox has no /etc/logrotate.d
+      services.logrotate.enable = true;
+
+      # Test VMs ship without switch-to-configuration; the spike needs it.
+      system.switch.enable = true;
 
       networking.firewall.allowedTCPPorts = [
         3300 # mon v2
@@ -302,7 +306,7 @@ pkgs.testers.runNixOSTest {
 
       def switch(m):
           before = daemon_starts(m)
-          run(m, "/run/current-system/bin/switch-to-configuration test", 900)
+          ok(m, "/run/current-system/bin/switch-to-configuration test", 900)
           time.sleep(30)
           after = daemon_starts(m)
           restarted = sorted(u for u in before if before[u] != after.get(u))
@@ -389,7 +393,7 @@ pkgs.testers.runNixOSTest {
                   run(m, "ls -la /etc/sysctl.d /etc/logrotate.d /etc/ceph; cat /etc/sysctl.d/*ceph* || true")
                   run(m, "sysctl fs.aio-max-nr kernel.pid_max")
                   run(m, "systemctl start logrotate.service; systemctl status logrotate.service --no-pager")
-                  run(m, "systemctl cat 'ceph-*@.service' --no-pager | head -60")
+                  run(m, "cat /etc/systemd/system/ceph-*@.service")
 
           with subtest("switch-to-configuration before any drop-in exists"):
               for m in [node2, node1]:
@@ -410,6 +414,8 @@ pkgs.testers.runNixOSTest {
                   run(m, "journalctl -b -1 -u 'ceph-*' --no-pager | grep -iE 'not found|No such file' | head -20")
 
           with subtest("switch-to-configuration with drop-ins"):
+              for m in hosts:
+                  run(m, "ls -d /etc/systemd/system/ceph*.d; cat /etc/systemd/system/ceph.target.d/*")
               for m in [node2, node1]:
                   restarted, missing = switch(m)
                   assert not restarted and not missing, (restarted, missing)
