@@ -46,12 +46,42 @@
           nixpkgs.overlays = [ self.overlays.default ];
         };
 
+      nixosModules.builder = import ./nix/modules/builder.nix;
+
       checks.${system} = {
         cephadm-spike = import ./nix/tests/cephadm-spike.nix { inherit pkgs nixos-cloudinit; };
         opencas = import ./nix/tests/opencas.nix { inherit pkgs self; };
         # Supported kernels (5.10 to 7.0): the default one is also covered by the VM test.
         open-cas-kmod-lts = ocKernels.linux_6_12.open-cas;
         open-cas-kmod-latest = ocKernels.linux_6_18.open-cas;
+        # Evaluates a system using the builder module, without building it.
+        builder-eval =
+          let
+            sys = nixpkgs.lib.nixosSystem {
+              inherit system;
+              modules = [
+                self.nixosModules.builder
+                {
+                  services.ceph-nix-builder = {
+                    enable = true;
+                    runner.tokenFile = "/run/secrets/runner-token";
+                    cache.signingKeyFile = "/run/secrets/cache-key";
+                    gcRoots = [ pkgs.hello ];
+                  };
+                  boot.loader.grub.enable = false;
+                  fileSystems."/" = {
+                    device = "none";
+                    fsType = "tmpfs";
+                  };
+                  system.stateVersion = "26.05";
+                }
+              ];
+            };
+          in
+          pkgs.writeText "builder-eval" (
+            builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath
+          );
+
         formatting =
           pkgs.runCommand "formatting"
             {
