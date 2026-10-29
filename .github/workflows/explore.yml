@@ -1,0 +1,30 @@
+name: explore
+on:
+  workflow_dispatch:
+jobs:
+  explore:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+      - uses: cachix/install-nix-action@v31
+      - name: nixpkgs ceph outputs
+        run: |
+          nix build -L --no-link --print-out-paths 'github:NixOS/nixpkgs/nixos-26.05#ceph^*' | tee outs.txt
+          for o in $(cat outs.txt); do echo "=== $o"; ls $o; done
+          out=$(grep -v -e -lib -e -client -e -dev -e -doc -e -man outs.txt | head -1)
+          lib=$(grep -e '-lib$' outs.txt)
+          echo "=== bin"; ls -la $out/bin $out/sbin || true
+          echo "=== libexec/share"; ls $out/libexec $out/share $out/lib 2>&1 || true
+          echo "=== lib output"; ls $lib $lib/lib $lib/lib/ceph 2>&1 | head -80
+          echo "=== mgr"; ls $lib/lib/ceph/mgr | head -100
+          find $out $lib -iname '*cephadm*' -not -path '*/mgr/cephadm/*' | head -30
+          nix eval --raw 'github:NixOS/nixpkgs/nixos-26.05#ceph.version'
+          nix eval --raw 'github:NixOS/nixpkgs/nixos-26.05#ceph.pythonEnv.python.version'
+      - name: upstream listing
+        run: |
+          docker pull quay.io/ceph/ceph:v20.2.4
+          docker image inspect quay.io/ceph/ceph:v20.2.4 | head -60
+          docker run --rm --entrypoint bash quay.io/ceph/ceph:v20.2.4 -c '
+            for d in /usr/bin /usr/sbin /usr/libexec/ceph /usr/lib64/ceph; do echo "== $d"; ls -1 $d; done
+            echo "== mgr"; ls -1 /usr/share/ceph/mgr; ls /usr/share/ceph; ls /usr/lib64 | grep -i -e ceph -e rados -e rbd
+            python3 --version; cat /etc/os-release | head -3' | tee upstream.txt
