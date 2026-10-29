@@ -42,7 +42,8 @@ host_name() { # the host's name in the orchestrator
 }
 
 blinker_exists() { # blinker_exists SERVICE_ID
-	ceph orch ls container -f json | jq -e --arg n "container.$1" 'any(.[]; .service_name == $n)' >/dev/null
+	# with no services, ceph prints "No services reported" instead of JSON: jq fails, which means "no"
+	ceph orch ls container -f json 2>/dev/null | jq -e --arg n "container.$1" 'any(.[]; .service_name == $n)' >/dev/null 2>&1
 }
 
 blinker_start() { # blinker_start PATH

@@ -299,7 +299,9 @@ light() { sudo "$work/cephadm" --image "$local_image" shell --fsid "$fsid" -- /u
 blinkers() { ps -eo args | grep -c "^/.*blink-disk $bdev\$" || true; }
 blinkers_are() { [ "$(blinkers)" = "$1" ]; }
 reads() { awk '{print $1}' "/sys/block/$bname/stat"; }
-services() { tbx ceph orch ls container -f json | jq length; }
+# with nothing to list, ceph prints "No services reported" / "No daemons reported" instead of JSON
+count_json() { jq length 2>/dev/null || echo 0; }
+services() { tbx ceph orch ls container -f json | count_json; }
 blinkers_are 0
 light on fault "$bdev" && { echo "fault light must not fall back"; exit 1; }
 [ "$(services)" = 0 ]
@@ -312,7 +314,7 @@ light on ident "$bdev"
 sleep 20
 blinkers_are 1
 [ "$(services)" = 1 ]
-[ "$(tbx ceph orch ps --daemon-type container -f json | jq length)" = 1 ]
+[ "$(tbx ceph orch ps --daemon-type container -f json | count_json)" = 1 ]
 light off ident "$bdev"
 wait_for 180 "blinker gone" blinkers_are 0
 [ "$(services)" = 0 ]
