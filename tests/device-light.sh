@@ -28,7 +28,7 @@ echo "ceph $*" >>"$CALLS"
 case "$*" in
 "orch host ls -f json") echo '[{"hostname":"node1"}]' ;;
 "orch ls container -f json") [ -e "$STATE" ] && echo '[{"service_name":"container.blink-dev-sdz"}]' || echo '[]' ;;
-"orch apply -i "*) cp "${@: -1}" "$SPEC"; touch "$STATE" ;;
+"orch apply -i "*) cp "${@: -1}" "$SPEC"; chmod a+r "$SPEC"; touch "$STATE" ;;
 "orch rm "*) rm -f "$STATE" ;;
 esac
 SH
