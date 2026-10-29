@@ -36,6 +36,10 @@ let
             f=src/support/nfs_read_conf.c
             sed -i 's/\("Allow_Set_Io_Flusher_Fail",[[:space:]]*\)false/\1true/' $f
             grep -q 'Allow_Set_Io_Flusher_Fail", true' $f
+
+            # the default config path must be /etc/ganesha/ganesha.conf (Rook mounts it there), not the store's etc
+            sed -i 's|GANESHA_CONFIG_PATH "@SYSCONFDIR@/ganesha/ganesha.conf"|GANESHA_CONFIG_PATH "/etc/ganesha/ganesha.conf"|' src/include/config-h.in.cmake
+            grep -q 'GANESHA_CONFIG_PATH "/etc/ganesha/ganesha.conf"' src/include/config-h.in.cmake
           '';
         });
 
