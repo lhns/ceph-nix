@@ -248,8 +248,21 @@ pkgs.testers.runNixOSTest {
           # Ceph 21 creates AES256KRB5 keys by default, which the kernel client cannot parse (EINVAL
           # on rbd map / cephfs mount); a client that maps or mounts needs an `aes` key. The mon warns
           # about insecure client keys, so mute that.
-          key = quiet("ceph auth get-or-create-key client.kern mon 'allow *' osd 'allow *' mds 'allow *' --key_type aes")
-          assert key.startswith("AQ"), key
+          caps = "mon 'allow *' osd 'allow *' mds 'allow *'"
+          key = ""
+          for opt in ["--key_type aes", "--key-type aes", "--key-type=aes", "--key_type=aes"]:
+              rc, out = node1.execute(
+                  f"cephadm shell -- ceph auth get-or-create-key client.kern {caps} {opt} </dev/null", timeout=600)
+              print(f"[kernel_key] {opt}: rc={rc}
+{out}")
+              if rc == 0:
+                  key = out.strip().splitlines()[-1]
+                  break
+          if not key.startswith("AQ"):
+              ceph("config get mon mon_auth_allow_insecure_key")
+              ceph("mon dump")
+              ceph("config-key dump | head -0")
+              raise Exception(f"no kernel-compatible key: {key!r}")
           ceph("health mute AUTH_INSECURE_CLIENT_KEY_TYPE --sticky")
           return key
 
