@@ -104,6 +104,22 @@ pkgs.testers.runNixOSTest {
         csv = machine.succeed("casadm --io-class --list --cache-id 1 --output-format csv")
         assert "metadata&done" in csv and ",wt" in csv, csv
 
+    with subtest("an active LV on the cas device does not make the shutdown dirty"):
+        machine.succeed("pvcreate -ff -y /dev/cas1-1 && vgcreate vgcas /dev/cas1-1 && lvcreate -L 64M -n lv vgcas")
+        machine.succeed("dd if=/dev/urandom of=/dev/vgcas/lv bs=1M count=32 oflag=direct conv=fsync")
+        machine.succeed("md5sum < /dev/vgcas/lv | cut -d' ' -f1 > /var/tmp/lv.md5; head -c 33554432 /dev/vgcas/lv | md5sum | cut -d' ' -f1 > /var/tmp/lv.md5")
+        machine.shutdown()
+        machine.start()
+        machine.wait_for_unit("multi-user.target")
+        machine.wait_for_unit("open-cas.service")
+        machine.succeed("casadm -L -o csv | grep -E '^cache,1,.*Running'")
+        machine.succeed("casadm -L -o csv | grep -E '^core,1,.*Active'")
+        machine.fail("dmesg | grep -F 'did not shut down properly'")
+        machine.succeed("vgchange -ay vgcas")
+        sum_ = machine.succeed("head -c 33554432 /dev/vgcas/lv | md5sum | cut -d' ' -f1").strip()
+        assert sum_ == machine.succeed("cat /var/tmp/lv.md5").strip()
+        machine.succeed("lvremove -y vgcas/lv && vgremove -y vgcas && pvremove -y /dev/cas1-1")
+
     with subtest("clean stop"):
         machine.succeed("casctl stop")
         out = machine.succeed("casadm -L")

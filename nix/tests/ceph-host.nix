@@ -166,10 +166,6 @@ pkgs.testers.runNixOSTest {
           cores = [ "/dev/disk/by-id/virtio-CASCORE" ];
         };
       };
-      # The LV on the cas device keeps it open; open-cas-shutdown cannot stop the cache until the VG is
-      # deactivated, and an unclean cache comes back with its core inactive.
-      systemd.services.open-cas-shutdown.serviceConfig.ExecStartPre =
-        "-${pkgs.lvm2.bin}/bin/vgchange -an --noudevsync vgcas";
       services.chrony.servers = [ "node1" ];
       services.chrony.extraConfig = "makestep 0.1 -1";
     };

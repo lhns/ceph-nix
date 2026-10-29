@@ -217,6 +217,19 @@ let
             opencas.add_core(core, False)
     sys.exit(1 if failed else 0)
   '';
+
+  deactivateCasVgs = pkgs.writeShellScript "opencas-deactivate-vgs" ''
+    PATH=${
+      lib.makeBinPath [
+        pkgs.lvm2
+        pkgs.gawk
+        pkgs.coreutils
+      ]
+    }
+    for vg in $(pvs --noheadings -o vg_name,pv_name | awk '$2 ~ "^/dev/cas" { print $1 }' | sort -u); do
+      vgchange -an --noudevsync "$vg"
+    done
+  '';
 in
 {
   options.services.opencas = {
@@ -312,9 +325,14 @@ in
       ];
     };
 
+    # An active LV on a cas device keeps the cache open, so `casctl stop` fails and the cache comes back
+    # dirty with its core inactive. Deactivate every VG with a PV on a cas device first, and run after
+    # the consumers (ceph.target is harmless when Ceph is not installed).
     systemd.services.open-cas-shutdown = {
       overrideStrategy = "asDropinIfExists";
       wantedBy = [ "final.target" ];
+      after = [ "ceph.target" ];
+      serviceConfig.ExecStartPre = "-${deactivateCasVgs}";
     };
 
     systemd.services.opencas-init = lib.mkIf cfg.initializeBlankCaches {
