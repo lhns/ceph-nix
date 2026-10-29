@@ -303,7 +303,16 @@ wait_for 120 "nfs mount" mount_nfs || {
 	sudo "$work/cephadm" logs --name "$(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].daemon_name')" 2>&1 | tail -80 || true
 	exit 1
 }
-check_files /mnt/nfs/nfsdata "$work/nfs.md5"
+# a restarted ganesha is in its grace period for a while; reads must come back within a few minutes, never hang
+nfs_read() { (cd /mnt/nfs/nfsdata && sudo timeout -s KILL 20 md5sum -c "$work/nfs.md5"); }
+wait_for 300 "nfs read" nfs_read || {
+	echo "nfs data unreadable after the upgrade; ganesha state:"
+	tbx ceph orch ps --daemon-type nfs || true
+	sudo timeout 60 "$work/cephadm" logs --name "$(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].daemon_name')" 2>&1 | tail -150 || true
+	sudo timeout 20 dmesg | grep -iE 'nfs|rpc' | tail -30 || true
+	sudo umount -f -l /mnt/nfs || true
+	exit 1
+}
 sudo umount /mnt/nfs
 python3 "$work/s3.py" get "http://$ip:8080" "$work/s3.json"
 set +x
