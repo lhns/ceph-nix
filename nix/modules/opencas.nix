@@ -245,15 +245,14 @@ in
 
     environment.etc = {
       "opencas/opencas.conf".text = opencasConf;
+      # LVM ignores unknown block devices; cas devices need an explicit type (max 16 partitions).
+      "lvm/lvm.conf".text = lib.mkIf config.services.lvm.enable ''
+        devices/types = [ "cas", 16 ]
+      '';
     }
     // lib.mapAttrs' (
       id: c: lib.nameValuePair "opencas/ioclass-config-${id}.csv" { text = ioClassCsv c.ioClasses; }
     ) (lib.filterAttrs (_: c: c.ioClasses != null) cfg.caches);
-
-    # LVM ignores unknown block devices; cas devices need an explicit type (max 16 partitions).
-    environment.etc."lvm/lvm.conf".text = lib.mkIf config.services.lvm.enable ''
-      devices/types = [ "cas", 16 ]
-    '';
 
     systemd.services.open-cas = {
       overrideStrategy = "asDropinIfExists";
