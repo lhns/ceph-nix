@@ -1,0 +1,14 @@
+# Gaps in the Tentacle dev image (nixpkgs' Ceph) that the Umbrella build closes. Tolerated only with PARITY_PENDING_OK=1.
+# One shell glob per line, then "# reason, ADR 0002".
+
+# iSCSI: nixpkgs has neither tcmu-runner nor ceph-iscsi (rtslib-fb and configshell-fb exist). Umbrella step 3d.
+/usr/*/tcmu-runner  # iSCSI gateway, ADR 0002
+/usr/*/rbd-target-api  # ceph-iscsi, ADR 0002
+/usr/*/rbd-target-gw  # ceph-iscsi, ADR 0002
+/usr/*/gwcli  # ceph-iscsi, ADR 0002
+
+# libstoragemgmt is not in nixpkgs (device LED control in ceph-volume/cephadm). Umbrella step 3d.
+/usr/*/lsmcli  # libstoragemgmt, ADR 0002
+/usr/*/lsmd  # libstoragemgmt, ADR 0002
+/usr/*/sim_lsmplugin  # libstoragemgmt, ADR 0002
+/usr/*/simc_lsmplugin  # libstoragemgmt, ADR 0002

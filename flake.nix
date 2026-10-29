@@ -29,7 +29,7 @@
 
       formatter.${system} = pkgs.nixfmt;
 
-      packages.${system} = {
+      packages.${system} = import ./nix/images { inherit pkgs self; } // {
         open-cas = ocPkgs.open-cas;
         open-cas-kmod = ocPkgs.linuxPackages.open-cas;
       };
