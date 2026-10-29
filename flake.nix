@@ -29,14 +29,10 @@
 
       formatter.${system} = pkgs.nixfmt;
 
-<<<<<<< HEAD
-      packages.${system} = import ./nix/images { inherit pkgs self; };
-=======
-      packages.${system} = {
+      packages.${system} = import ./nix/images { inherit pkgs self; } // {
         open-cas = ocPkgs.open-cas;
         open-cas-kmod = ocPkgs.linuxPackages.open-cas;
       };
->>>>>>> origin/main
 
       nixosModules = {
         builder = import ./nix/modules/builder.nix;
