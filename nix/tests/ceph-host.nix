@@ -33,8 +33,10 @@ let
   aesWorkaround = lib.versionAtLeast imageVersion "21";
 
   # load the image into the VM's podman, and the name:tag it carries
-  loadImage = if upstream then "podman load -i ${upstreamImage}" else "set -o pipefail; ${ours} | podman load";
-  imageSource = if upstream then "${imageInfo.image}:${imageInfo.tag}" else "localhost/ceph-nix:${imageVersion}";
+  loadImage =
+    if upstream then "podman load -i ${upstreamImage}" else "set -o pipefail; ${ours} | podman load";
+  imageSource =
+    if upstream then "${imageInfo.image}:${imageInfo.tag}" else "localhost/ceph-nix:${imageVersion}";
   cpu = if upstream then "host" else common.maskedCpu;
 
   registry = "node1:5000";
