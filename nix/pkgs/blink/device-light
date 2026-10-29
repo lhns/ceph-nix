@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# Disk locate LED for cephadm's `ceph orch device light` (mgr/cephadm blink_device_light_cmd), run by cephadm in a
+# privileged container of this image. Native method first (libstoragemgmt); when the disk does not support LED control,
+# ident falls back to blinking the activity LED with blink-disk.
+#   device-light on|off ident|fault PATH
+#   device-light install            set the cephadm command template to call this (see README)
+# The fallback must outlive the short-lived container cephadm runs this in, so the blinker is a cephadm-managed
+# container service (container.blink-<dev>, this image, privileged) placed on this host; `off` removes it.
+# That needs a working `ceph` CLI here (the admin keyring: cephadm shell finds it on hosts that have one).
+# fault has no fallback: an activity blink would not mean "fault".
+set -uo pipefail
+
+log() { echo "device-light: $*" >&2; }
+die() { log "$*"; exit "${2:-1}"; }
+
+# lsmcli's "no LED control here": its LsmError text names the error (NO_SUPPORT, PLUGIN_NOT_EXIST, ...), exit code 4;
+# 127 = no lsmcli. Anything else (permission denied, bad path, ...) is a real error.
+unsupported() { # unsupported RC STDERR
+	[ "$1" = 127 ] && return 0
+	[ "$1" = 4 ] && grep -qiE 'NO_SUPPORT|PLUGIN_NOT_EXIST|not support|unsupported' <<<"$2"
+}
+
+# Run lsmcli; sets native_rc and native_err.
+native() { # native ident|fault on|off PATH
+	native_err=$(lsmcli "local-disk-$1-led-$2" --path "$3" 2>&1 >/dev/null)
+	native_rc=$?
+}
+
+svc_for() { # container.blink-dev-sdb
+	local s
+	s=$(tr -c 'a-z0-9\n' - <<<"${1,,}" | sed 's/^-*//; s/-*$//')
+	echo "blink-$s"
+}
+
+host_name() { # the host's name in the orchestrator
+	local names n
+	names=$(ceph orch host ls -f json | jq -r '.[].hostname') || return 1
+	for n in "${NODE_NAME:-$(hostname)}" "$(hostname)" "$(hostname -s)"; do
+		grep -qxF "$n" <<<"$names" && { echo "$n"; return 0; }
+	done
+	return 1
+}
+
+blinker_exists() { # blinker_exists SERVICE_ID
+	ceph orch ls container -f json | jq -e --arg n "container.$1" 'any(.[]; .service_name == $n)' >/dev/null
+}
+
+blinker_start() { # blinker_start PATH
+	local id host spec
+	[ -n "${CONTAINER_IMAGE:-}" ] || die "CONTAINER_IMAGE is not set (not run by cephadm shell?)"
+	id=$(svc_for "$1")
+	host=$(host_name) || die "host ${NODE_NAME:-$(hostname)} is not in the orchestrator's host list"
+	spec=$(mktemp)
+	cat >"$spec" <<YAML
+service_type: container
+service_id: $id
+placement:
+  hosts: [$host]
+spec:
+  image: $CONTAINER_IMAGE
+  entrypoint: /usr/libexec/ceph-nix/blink-disk
+  uid: 0
+  gid: 0
+  privileged: true
+  envs: [BLINK_DEV=$1]
+  volume_mounts:
+    /dev: /dev
+YAML
+	ceph orch apply -i "$spec" >&2 || die "cannot start the blinker service container.$id"
+	rm -f "$spec"
+	log "blinking $1 through the activity LED: service container.$id on $host"
+}
+
+blinker_stop() { # blinker_stop PATH
+	local id
+	id=$(svc_for "$1")
+	if blinker_exists "$id"; then
+		ceph orch rm "container.$id" >&2 || die "cannot remove the blinker service container.$id"
+		log "stopped the activity-LED blinker container.$id for $1"
+	fi
+}
+
+cmd=${1:-}
+case $cmd in
+install)
+	ceph config-key set mgr/cephadm/blink_device_light_cmd \
+		"/usr/libexec/ceph-nix/device-light {{ 'on' if on else 'off' }} {{ ident_fault }} '{{ path or dev }}'"
+	;;
+on | off)
+	[ $# = 3 ] || die "usage: device-light on|off ident|fault PATH" 2
+	kind=$2 path=$3
+	case $kind in ident | fault) ;; *) die "unknown light type $kind" 2 ;; esac
+	native "$kind" "$cmd" "$path"
+	if [ "$native_rc" = 0 ]; then
+		log "$kind $cmd for $path: native (lsmcli)"
+		exit 0
+	fi
+	if ! unsupported "$native_rc" "$native_err"; then
+		die "lsmcli failed for $path (exit $native_rc): $native_err" "$native_rc"
+	fi
+	if [ "$kind" = fault ]; then
+		die "fault light for $path: lsmcli does not support it ($native_err); no fallback for fault"
+	fi
+	log "lsmcli cannot control the LED of $path ($native_err)"
+	if [ "$cmd" = on ]; then
+		id=$(svc_for "$path")
+		if blinker_exists "$id"; then
+			log "$path is already blinking (container.$id)"
+		else
+			blinker_start "$path"
+		fi
+	else
+		blinker_stop "$path"
+	fi
+	;;
+*)
+	die "usage: device-light on|off ident|fault PATH | install" 2
+	;;
+esac

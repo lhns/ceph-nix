@@ -32,7 +32,7 @@ collect() {
 		done
 	fi
 	for c in "ceph -s" "ceph health detail" "ceph orch ps" "ceph orch ls" "ceph mgr module ls" "ceph osd tree" "ceph crash ls" \
-		"ceph fs status" "ceph osd pool ls detail"; do
+		"ceph fs status" "ceph osd pool ls detail" "ceph orch ls container"; do
 		# shellcheck disable=SC2086
 		tbx $c >"$art/$(tr ' ' _ <<<"$c").txt" 2>&1
 	done
@@ -89,6 +89,10 @@ sudo podman push --tls-verify=false "$local_image"
 sudo podman run --rm --entrypoint cat "$local_image" /usr/sbin/cephadm >"$work/cephadm"
 chmod +x "$work/cephadm"
 sudo "$work/cephadm" version
+endstep
+
+step "device-light: decision logic with a fake lsmcli"
+ENGINE="sudo podman" "$here/device-light.sh" "$local_image"
 endstep
 
 step "bootstrap"
@@ -276,6 +280,58 @@ fi
 
 step "libstoragemgmt: lsmd and the simulator plugin"
 sudo podman run --rm --entrypoint /bin/bash "$local_image" -c '(lsmd -d >/dev/null 2>&1 &); sleep 2; lsmcli -u sim:// list --type systems | grep -q sim-01'
+endstep
+
+step "disk locate LED: lsmcli cannot do it, so cephadm's command ends in a blinker container"
+# What the mgr runs on the host is `cephadm shell --fsid FSID -- COMMAND` (blink_device_light); do the same with the
+# command its template renders. The loop device has no LED control, so lsmcli refuses and device-light falls back.
+fsid=$(tbx ceph fsid)
+tbx /usr/libexec/ceph-nix/device-light install
+tbx ceph config-key get mgr/cephadm/blink_device_light_cmd
+tpl=$(tbx ceph config-key get mgr/cephadm/blink_device_light_cmd)
+rendered=$(tbx python3 -c 'import sys, jinja2; print(jinja2.Template(sys.argv[1]).render(on=True, ident_fault="ident", dev="sdb", path="/dev/sdb"))' "$tpl")
+[ "$rendered" = "/usr/libexec/ceph-nix/device-light on ident '/dev/sdb'" ] || { echo "unexpected rendering: $rendered"; exit 1; }
+sudo truncate -s 256M /mnt/blink.img
+bdev=$(sudo losetup -f --show /mnt/blink.img)
+bname=${bdev#/dev/}
+light() { sudo "$work/cephadm" --image "$local_image" shell --fsid "$fsid" -- /usr/libexec/ceph-nix/device-light "$@" </dev/null; }
+# blinker processes against $bdev, as the host sees them (the container shares no PID namespace, but ps -e lists all)
+blinkers() { ps -eo args | grep -c "^/.*blink-disk $bdev\$" || true; }
+blinkers_are() { [ "$(blinkers)" = "$1" ]; }
+reads() { awk '{print $1}' "/sys/block/$bname/stat"; }
+services() { tbx ceph orch ls container -f json | jq length; }
+blinkers_are 0
+light on fault "$bdev" && { echo "fault light must not fall back"; exit 1; }
+[ "$(services)" = 0 ]
+light on ident "$bdev"
+wait_for 180 "blinker running" blinkers_are 1
+r1=$(reads); sleep 5; r2=$(reads)
+echo "reads of $bdev: $r1 -> $r2"
+[ "$r2" -gt "$r1" ]
+light on ident "$bdev"
+sleep 20
+blinkers_are 1
+[ "$(services)" = 1 ]
+[ "$(tbx ceph orch ps --daemon-type container -f json | jq length)" = 1 ]
+light off ident "$bdev"
+wait_for 180 "blinker gone" blinkers_are 0
+[ "$(services)" = 0 ]
+r1=$(reads); sleep 5; r2=$(reads)
+echo "reads of $bdev: $r1 -> $r2"
+[ "$r2" = "$r1" ]
+light off ident "$bdev"
+# the real path through the orchestrator, when the test host's devices have device ids (loop-backed OSDs usually do not)
+devid=$(tbx ceph device ls -f json | jq -r '[.[] | select((.location | length) > 0)][0].devid // empty')
+if [ -n "$devid" ]; then
+	echo "orch device light on $devid"
+	tbx ceph orch device light on "$devid"
+	sleep 20
+	tbx ceph orch ls container
+	tbx ceph orch device light off "$devid"
+else
+	echo "NOTE: no device with a device id; the mgr's rendering and dispatch were not exercised"
+fi
+sudo losetup -d "$bdev"
 endstep
 
 step "final health"
