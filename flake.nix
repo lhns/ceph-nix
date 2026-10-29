@@ -3,18 +3,46 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
+  # The fork adds a per-IO-class cache mode; OCF is a submodule.
+  inputs.open-cas-src = {
+    url = "git+https://github.com/lhns/open-cas-linux?ref=refs/tags/v26.03.3%2Bmode.2&submodules=1";
+    flake = false;
+  };
+
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      open-cas-src,
+    }:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      ocPkgs = import nixpkgs {
+        inherit system;
+        overlays = [ self.overlays.default ];
+      };
+      ocKernels = ocPkgs.linuxKernel.packages;
     in
     {
+      overlays.default = import ./nix/overlays/open-cas.nix { inherit open-cas-src; };
+
       formatter.${system} = pkgs.nixfmt;
 
-      packages.${system} = { };
+      packages.${system} = {
+        open-cas = ocPkgs.open-cas;
+        open-cas-kmod = ocPkgs.linuxPackages.open-cas;
+      };
 
-      nixosModules.builder = import ./nix/modules/builder.nix;
+      nixosModules = {
+        builder = import ./nix/modules/builder.nix;
+        opencas =
+          { ... }:
+          {
+            imports = [ ./nix/modules/opencas.nix ];
+            nixpkgs.overlays = [ self.overlays.default ];
+          };
+      };
 
       checks.${system} = {
         # Evaluates a system using the builder module, without building it.
@@ -44,7 +72,10 @@
           pkgs.writeText "builder-eval" (
             builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath
           );
-
+        opencas = import ./nix/tests/opencas.nix { inherit pkgs self; };
+        # Supported kernels (5.10 to 7.0): the default one is also covered by the VM test.
+        open-cas-kmod-lts = ocKernels.linux_6_12.open-cas;
+        open-cas-kmod-latest = ocKernels.linux_6_18.open-cas;
         formatting =
           pkgs.runCommand "formatting"
             {
