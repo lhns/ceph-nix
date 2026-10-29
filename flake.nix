@@ -37,6 +37,8 @@
       packages.${system} = {
         open-cas = ocPkgs.open-cas;
         open-cas-kmod = ocPkgs.linuxPackages.open-cas;
+        # Slow VM test (about 30 minutes): run by .github/workflows/vm-tests.yml, not part of `checks`.
+        test-ceph-host = import ./nix/tests/ceph-host.nix { inherit pkgs self nixos-cloudinit; };
       };
 
       nixosModules.opencas =
@@ -48,12 +50,39 @@
 
       nixosModules.builder = import ./nix/modules/builder.nix;
 
+      nixosModules.ceph-host = import ./nix/modules/ceph-host.nix;
+
       checks.${system} = {
-        cephadm-spike = import ./nix/tests/cephadm-spike.nix { inherit pkgs nixos-cloudinit; };
         opencas = import ./nix/tests/opencas.nix { inherit pkgs self; };
         # Supported kernels (5.10 to 7.0): the default one is also covered by the VM test.
         open-cas-kmod-lts = ocKernels.linux_6_12.open-cas;
         open-cas-kmod-latest = ocKernels.linux_6_18.open-cas;
+        # Evaluates a system using the ceph-host module, without building it.
+        ceph-host-eval =
+          let
+            sys = nixpkgs.lib.nixosSystem {
+              inherit system;
+              modules = [
+                self.nixosModules.ceph-host
+                {
+                  services.ceph-host = {
+                    enable = true;
+                    clientKernelModules = true;
+                    orchestratorKeys = [ "ssh-ed25519 AAAA test" ];
+                  };
+                  boot.loader.grub.enable = false;
+                  fileSystems."/" = {
+                    device = "none";
+                    fsType = "tmpfs";
+                  };
+                  system.stateVersion = "26.05";
+                }
+              ];
+            };
+          in
+          pkgs.writeText "ceph-host-eval" (
+            builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath
+          );
         # Evaluates a system using the builder module, without building it.
         builder-eval =
           let
