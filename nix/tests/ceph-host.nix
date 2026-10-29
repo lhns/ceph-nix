@@ -246,7 +246,10 @@ pkgs.testers.runNixOSTest {
 
       def map_rbd():
           key = quiet("ceph auth get-key client.admin")
-          node1.succeed(f"echo '{ip1}:6789 name=admin,secret={key} rbd test' > /sys/bus/rbd/add")
+          rc, _ = run(node1, f"echo '{ip1}:6789 name=admin,secret={key} rbd test' > /sys/bus/rbd/add")
+          if rc != 0:
+              run(node1, "dmesg | tail -40; lsmod | grep -E 'rbd|ceph|libceph'")
+              raise Exception("rbd map failed")
           node1.succeed("udevadm settle; test -b /dev/rbd0")
 
 
