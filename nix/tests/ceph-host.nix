@@ -291,11 +291,12 @@ pkgs.testers.runNixOSTest {
       def kernel_key():
           if AES_WORKAROUND:
               ceph("mon set auth_allowed_ciphers aes,aes256k")
+          key_type = "--key_type aes" if AES_WORKAROUND else ""
           # the mons take a moment to apply the new cipher list
           for attempt in range(12):
               rc, out = node1.execute(
                   "cephadm shell -- ceph auth get-or-create-key client.kern mon 'allow *' osd 'allow *' "
-                  f"mds 'allow *' {'--key_type aes' if AES_WORKAROUND else ''} </dev/null 2>/dev/null", timeout=600)
+                  f"mds 'allow *' {key_type} </dev/null 2>/dev/null", timeout=600)
               if rc == 0:
                   break
               time.sleep(10)
