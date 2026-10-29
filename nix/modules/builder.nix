@@ -14,7 +14,9 @@ let
   isTrusted = lib.any (
     e:
     e == user
-    || (lib.hasPrefix "@" e && lib.elem user (config.users.groups.${lib.removePrefix "@" e}.members or [ ]))
+    || (
+      lib.hasPrefix "@" e && lib.elem user (config.users.groups.${lib.removePrefix "@" e}.members or [ ])
+    )
     || e == "@${user}"
   ) trusted;
 in
@@ -132,7 +134,9 @@ in
     systemd.tmpfiles.rules = [
       "d /nix/var/nix/gcroots/ceph-nix 0755 root root -"
     ]
-    ++ map (p: "L+ /nix/var/nix/gcroots/ceph-nix/${builtins.baseNameOf (toString p)} - - - - ${p}") cfg.gcRoots;
+    ++ map (
+      p: "L+ /nix/var/nix/gcroots/ceph-nix/${builtins.baseNameOf (toString p)} - - - - ${p}"
+    ) cfg.gcRoots;
 
     services.harmonia.cache = {
       enable = true;
