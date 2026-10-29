@@ -1,6 +1,7 @@
 name: explore
 on:
-  workflow_dispatch:
+  push:
+    paths: [.github/workflows/explore.yml]
 jobs:
   explore:
     runs-on: ubuntu-24.04
