@@ -24,7 +24,8 @@ let
   python = pyEnv.python;
   sitePackages = python.sitePackages;
 
-  ganeshaPkg = if ganesha != null then ganesha else import ../pkgs/nfs-ganesha.nix { inherit pkgs ceph; };
+  ganeshaPkg =
+    if ganesha != null then ganesha else import ../pkgs/nfs-ganesha.nix { inherit pkgs ceph; };
 
   # Earlier entries win name clashes in /usr/bin.
   userland =
