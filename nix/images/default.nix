@@ -13,7 +13,12 @@ in
   cephadm-tentacle = cephadm;
   ceph-smoke-tentacle = smoke;
   ceph-image-tentacle = mkCephImage {
-    inherit ceph cephadm smoke rev;
+    inherit
+      ceph
+      cephadm
+      smoke
+      rev
+      ;
     version = ceph.version;
     cephRef = "tentacle";
     # the cephadm orchestrator needs asyncssh; nixpkgs' mgr env lacks it
