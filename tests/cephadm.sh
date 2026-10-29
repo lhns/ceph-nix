@@ -116,6 +116,10 @@ wait_for 600 "HEALTH_OK" health_ok || { tbx ceph health detail; exit 1; }
 tbx ceph -s
 endstep
 
+# three small OSDs: keep the pools (rgw, cephfs, nfs create their own) under the 250 PGs per OSD limit
+tbx ceph config set global osd_pool_default_pg_num 8
+tbx ceph config set global osd_pool_default_pgp_num 8
+
 step "mgr modules: none that cannot run, no MGR_MODULE_ERROR"
 tbx ceph mgr module ls -f json >"$work/modules.json"
 jq -r '.disabled_modules[] | select(.can_run == false) | "\(.name): \(.error_string)"' "$work/modules.json" | tee "$work/cannot-run.txt"
