@@ -16,15 +16,15 @@
     in
     "${i.image}:${i.tag}"
   ),
-  # The upstream image's lvm.conf lacks `devices/types = ["cas", 16]`; if ceph-volume cannot use the
-  # cas-backed LV for that reason the subtest is reported as XFAIL instead of failing. Our image has the
-  # setting, so its test sets this to false.
-  casOsdXfail ? true,
+  # The upstream image's lvm.conf lacks `devices/types = ["cas", 16]`. With upstream v21.2.0 the OSD on
+  # the cas-backed LV works anyway (ceph-volume runs the host's LVM through nsenter), but if an image
+  # ever needs it, true reports a failing subtest as XFAIL instead of failing the test.
+  casOsdXfail ? false,
   # The upstream image needs AVX2 (x86-64-v3); our image is tested with a masked CPU instead.
   cpuHost ? true,
   # Kernel rbd/cephfs clients need the legacy `aes` cephx cipher on Ceph 21 (see kernel_key in the
   # script); if they still cannot talk to the cluster the subtest is reported as XFAIL.
-  kernelClientsXfail ? true,
+  kernelClientsXfail ? false,
 }:
 
 let
@@ -307,14 +307,14 @@ pkgs.testers.runNixOSTest {
 
 
       def map_rbd(key):
-          rc, _ = run(node1, f"echo '{ip1}:6789 name=kern,secret={key} rbd test' > /sys/bus/rbd/add")
+          rc, _ = run(node1, f"echo '{ip1}:6789 name=kern,secret={key} rbd test' > /sys/bus/rbd/add_single_major")
           if rc != 0:
               # no kernel message by default: turn on libceph/rbd debug output and look at it
               run(node1, "mount -t debugfs none /sys/kernel/debug; uname -r; "
                   "echo 'module libceph +p' > /sys/kernel/debug/dynamic_debug/control; "
                   "echo 'module rbd +p' > /sys/kernel/debug/dynamic_debug/control; "
                   "dmesg -C; "
-                  f"echo '{ip1}:6789 name=kern,secret={key} rbd test' > /sys/bus/rbd/add; "
+                  f"echo '{ip1}:6789 name=kern,secret={key} rbd test' > /sys/bus/rbd/add_single_major; "
                   "dmesg | tail -60")
               run(node1, "cephadm shell -- ceph auth get client.kern")
               raise Exception("rbd map failed")
@@ -330,7 +330,7 @@ pkgs.testers.runNixOSTest {
 
 
       def unmount_clients():
-          run(node1, "umount /mnt/cephfs; echo 0 > /sys/bus/rbd/remove")
+          run(node1, "umount /mnt/cephfs; echo 0 > /sys/bus/rbd/remove_single_major")
 
 
       ec_md5 = lambda: quiet("bash -c 'rados -p ecpool get obj - | md5sum'")

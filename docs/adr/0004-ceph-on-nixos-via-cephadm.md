@@ -45,6 +45,14 @@ does not import `nixos-cloudinit`; consumers compose it with their base.
 - Untested: `system.etc.overlay` and the systemd initrd (the module refuses the former).
 - Two cephadms: the host's (patched) and the image's (unpatched until our image ships the patch). Keep the
   patched version equal to the image's Ceph release.
+- Kernel rbd/cephfs clients (`clientKernelModules`) cannot use Ceph 21's default AES256KRB5 keys (EINVAL on
+  mount). They need the legacy cipher: `ceph mon set auth_allowed_ciphers aes,aes256k` and a client key created with
+  `--key_type aes`; the mons then warn (`AUTH_INSECURE_*`). The VM test does exactly this. Userspace clients are
+  unaffected.
+- An LVM volume on an Open CAS device keeps the cache open at shutdown, so `open-cas-shutdown` cannot stop it and
+  the cache comes back dirty with its core inactive. Deactivate the VG first (the test adds
+  `ExecStartPre=-vgchange -an vgcas` to `open-cas-shutdown`); the opencas module could do this for VGs on cas
+  devices.
 - Host state (units, keys) lives outside the Nix store and is not declarative.
 - The VM test (`packages.x86_64-linux.test-ceph-host`, `vm-tests.yml`) is the regression guard; it runs with the
   upstream image until ours exists.
