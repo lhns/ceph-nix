@@ -113,10 +113,12 @@ let
     ++ lib.optional (extraPython != [ ]) (python.pkgs.makePythonPath extraPython)
   );
 
-  # Only the udev settings from upstream's Containerfile: the container can't reach udev.
+  # The udev settings from upstream's Containerfile (the container can't reach udev), plus the Open CAS block device
+  # type so ceph-volume's LVM sees PVs on /dev/casX-Y.
   lvmConf = pkgs.writeTextDir "etc/lvm/lvm.conf" ''
     devices {
         obtain_device_list_from_udev = 0
+        types = [ "cas", 16 ]
     }
     activation {
         udev_sync = 0
