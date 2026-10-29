@@ -17,7 +17,7 @@ wait_for() { # wait_for SECONDS CMD...
 }
 iscsi_running() { [ "$(sudo podman exec toolbox ceph orch ps --daemon-type iscsi -f json | jq '[.[] | select(.status_desc == "running")] | length')" -ge 1 ]; }
 
-tbx ceph osd pool create iscsi 16 >/dev/null
+tbx ceph osd pool create iscsi 8 >/dev/null
 tbx rbd pool init iscsi
 cat >"$work/iscsi.yaml" <<YAML
 service_type: iscsi

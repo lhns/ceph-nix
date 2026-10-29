@@ -126,7 +126,7 @@ unexpected=$(cut -d: -f1 "$work/cannot-run.txt" | grep -vxFf <(sed 's/[[:space:]
 endstep
 
 step "rados bench"
-tbx ceph osd pool create bench 32 >/dev/null
+tbx ceph osd pool create bench 8 >/dev/null
 tbx ceph osd pool application enable bench rados
 tbx rados bench -p bench 10 write --no-cleanup
 tbx rados bench -p bench 5 seq
@@ -135,7 +135,7 @@ endstep
 
 step "erasure-coded pool k=2 m=1"
 tbx ceph osd erasure-code-profile set ec21 k=2 m=1 crush-failure-domain=osd
-tbx ceph osd pool create ecpool 16 16 erasure ec21 >/dev/null
+tbx ceph osd pool create ecpool 8 8 erasure ec21 >/dev/null
 tbx ceph osd pool application enable ecpool rados
 tbx ceph osd pool set ecpool allow_ec_overwrites true
 head -c 8M /dev/urandom >"$work/ec.in"
@@ -147,7 +147,7 @@ cmp "$work/ec.in" "$work/ec.out"
 endstep
 
 step "rbd: krbd map, mkfs.ext4, I/O"
-tbx ceph osd pool create rbd 32 >/dev/null
+tbx ceph osd pool create rbd 8 >/dev/null
 tbx rbd pool init rbd
 tbx rbd create rbd/test --size 1G
 dev=$(rbdh map rbd/test)
