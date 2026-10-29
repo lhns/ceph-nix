@@ -290,6 +290,7 @@ in
       # unless the by-id/by-path directories are scanned, and the filter needs those aliases.
       "lvm/lvm.conf".text = lib.mkIf config.services.lvm.enable ''
         devices/types = [ "cas", 16 ]
+        devices/obtain_device_list_from_udev = 0
         devices/scan = [ "/dev", "/dev/disk/by-id", "/dev/disk/by-path" ]
         devices/global_filter = [ ${lib.concatMapStringsSep ", " (d: ''"r|^${d}$|"'') rawDevices}, "a|.*|" ]
       '';
