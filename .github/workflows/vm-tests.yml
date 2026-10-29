@@ -1,0 +1,42 @@
+# Slow NixOS VM tests (outside `nix flake check`): the cephadm host module on two nodes, ~30 minutes.
+name: vm-tests
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - nix/modules/**
+      - nix/tests/**
+      - nix/pkgs/cephadm*
+      - nix/pkgs/patch-cephadm.py
+      - nix/ceph-image.json
+      - flake.nix
+      - flake.lock
+      - .github/workflows/vm-tests.yml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ceph-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+          df -h /
+      - name: KVM for NixOS VM tests
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm && sudo udevadm settle
+          [ -w /dev/kvm ] || sudo chmod 666 /dev/kvm
+          test -w /dev/kvm
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
+      - run: nix build -L --no-link .#test-ceph-host
+      - if: always()
+        run: df -h /

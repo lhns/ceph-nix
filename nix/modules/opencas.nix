@@ -217,6 +217,40 @@ let
             opencas.add_core(core, False)
     sys.exit(1 if failed else 0)
   '';
+
+  deactivateCasVgs = pkgs.writeShellScript "opencas-deactivate-vgs" ''
+    PATH=${
+      lib.makeBinPath [
+        pkgs.lvm2
+        pkgs.gawk
+        pkgs.coreutils
+      ]
+    }
+    for vg in $(pvs --noheadings -o vg_name,pv_name | awk '$2 ~ "^/dev/cas" { print $1 }' | sort -u); do
+      vgchange -an --noudevsync "$vg"
+    done
+  '';
+
+  # LVM event-activates a VG from a raw core as soon as udev sees it, a few seconds before the cache is
+  # loaded and before the by-id links its global_filter relies on exist. The activated LVs hold the
+  # core open, so Open CAS cannot attach it. Release them before open-cas.service attaches cores.
+  releaseRawDevices = pkgs.writeShellScript "opencas-release-raw-devices" ''
+    PATH=${
+      lib.makeBinPath [
+        pkgs.lvm2
+        pkgs.coreutils
+        pkgs.systemd
+      ]
+    }
+    udevadm settle --timeout=30
+    for dev in ${lib.escapeShellArgs rawDevices}; do
+      real=$(readlink -f "$dev") || continue
+      for holder in /sys/class/block/$(basename "$real")/holders/*; do
+        [ -e "$holder/dm/name" ] || continue
+        dmsetup remove "$(cat "$holder/dm/name")"
+      done
+    done
+  '';
 in
 {
   options.services.opencas = {
@@ -306,15 +340,21 @@ in
         "local-fs-pre.target"
       ];
       after = [ "systemd-modules-load.service" ];
+      serviceConfig.ExecStartPre = "-${releaseRawDevices}";
       serviceConfig.ExecStart = [
         ""
         "${cfg.package}/bin/casctl settle --timeout ${toString cfg.settleTimeout} --interval 5"
       ];
     };
 
+    # An active LV on a cas device keeps the cache open, so `casctl stop` fails and the cache comes back
+    # dirty with its core inactive. Deactivate every VG with a PV on a cas device first, and run after
+    # the consumers (ceph.target is harmless when Ceph is not installed).
     systemd.services.open-cas-shutdown = {
       overrideStrategy = "asDropinIfExists";
       wantedBy = [ "final.target" ];
+      after = [ "ceph.target" ];
+      serviceConfig.ExecStartPre = "-${deactivateCasVgs}";
     };
 
     systemd.services.opencas-init = lib.mkIf cfg.initializeBlankCaches {

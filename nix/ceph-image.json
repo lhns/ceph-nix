@@ -1,0 +1,5 @@
+{
+  "image": "quay.io/ceph/ceph",
+  "tag": "v21.2.0",
+  "digest": "sha256:403c079a3f1efa7b58895750e9dd18c6da4701e60b746b084385c8cc545877b6"
+}

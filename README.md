@@ -10,6 +10,36 @@ Ceph built from source with Nix, for hosts without x86-64-v3 (AVX2):
 Work in progress. Decisions are in [`docs/adr/`](docs/adr). The ceph-csi counterpart is
 [lhns/ceph-csi-x86-64-v2](https://github.com/lhns/ceph-csi-x86-64-v2).
 
+## Ceph host
+
+`nixosModules.ceph-host` makes a NixOS machine a Ceph host run by cephadm (see
+[ADR 0004](docs/adr/0004-ceph-on-nixos-via-cephadm.md)): podman, LVM, chrony, a patched cephadm, a writable
+`/etc/systemd/system` overlay, the FHS paths cephadm needs, SSH for the orchestrator and the Ceph firewall ports.
+Compose it with your own base (it does not bring networking, a bootloader or users).
+
+```nix
+{
+  imports = [ ceph-nix.nixosModules.ceph-host ];
+  services.ceph-host = {
+    enable = true;
+    orchestratorKeys = [ "ssh-ed25519 AAAA... cluster" ]; # allowed to log in as root
+    # image = "ghcr.io/lhns/ceph-nix:...";  # default: the pinned upstream release
+    # clientKernelModules = true;           # rbd/ceph kernel modules, for hosts that map or mount
+  };
+}
+```
+
+Bootstrap, on the first host:
+
+```sh
+cephadm bootstrap --mon-ip <ip>       # uses the image from services.ceph-host.image ($CEPHADM_IMAGE)
+ssh-copy-id -f -i /etc/ceph/ceph.pub root@<other-host>  # or add ceph.pub to its orchestratorKeys
+ceph orch host add <other-host> <ip>
+ceph orch daemon add osd <host>:/dev/<disk>  # or: ceph orch apply osd --all-available-devices
+```
+
+Not supported: `system.etc.overlay.enable`. The VM test is `nix build .#test-ceph-host` (about 30 minutes).
+
 ## Builder
 
 `nixosModules.builder` turns a NixOS machine into the CI builder (ephemeral GitHub runners with label `nix-builder`,

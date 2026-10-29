@@ -2,6 +2,10 @@
   description = "Ceph for x86-64-v2 hosts, built with Nix: container image, cephadm host module, OpenCAS";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+  inputs.nixos-cloudinit = {
+    url = "github:lhns/nixos-cloudinit";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
 
   # The fork adds a per-IO-class cache mode; OCF is a submodule.
   inputs.open-cas-src = {
@@ -13,6 +17,7 @@
     {
       self,
       nixpkgs,
+      nixos-cloudinit,
       open-cas-src,
     }:
     let
@@ -32,10 +37,13 @@
       packages.${system} = import ./nix/images { inherit pkgs self; } // {
         open-cas = ocPkgs.open-cas;
         open-cas-kmod = ocPkgs.linuxPackages.open-cas;
+        # Slow VM test (about 30 minutes): run by .github/workflows/vm-tests.yml, not part of `checks`.
+        test-ceph-host = import ./nix/tests/ceph-host.nix { inherit pkgs self nixos-cloudinit; };
       };
 
       nixosModules = {
         builder = import ./nix/modules/builder.nix;
+        ceph-host = import ./nix/modules/ceph-host.nix;
         opencas =
           { ... }:
           {
@@ -45,6 +53,32 @@
       };
 
       checks.${system} = {
+        # Evaluates a system using the ceph-host module, without building it.
+        ceph-host-eval =
+          let
+            sys = nixpkgs.lib.nixosSystem {
+              inherit system;
+              modules = [
+                self.nixosModules.ceph-host
+                {
+                  services.ceph-host = {
+                    enable = true;
+                    clientKernelModules = true;
+                    orchestratorKeys = [ "ssh-ed25519 AAAA test" ];
+                  };
+                  boot.loader.grub.enable = false;
+                  fileSystems."/" = {
+                    device = "none";
+                    fsType = "tmpfs";
+                  };
+                  system.stateVersion = "26.05";
+                }
+              ];
+            };
+          in
+          pkgs.writeText "ceph-host-eval" (
+            builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath
+          );
         # Evaluates a system using the builder module, without building it.
         builder-eval =
           let
