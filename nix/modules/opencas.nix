@@ -286,9 +286,11 @@ in
       "opencas/opencas.conf".text = opencasConf;
       # LVM ignores unknown block devices; cas devices need an explicit type (max 16 partitions).
       # The raw cache and core devices must not be scanned: a core carries the same PV signature as
-      # its cas device, which makes LVM refuse both ("duplicates").
+      # its cas device, which makes LVM refuse both ("duplicates"). LVM only knows the kernel names
+      # unless the by-id/by-path directories are scanned, and the filter needs those aliases.
       "lvm/lvm.conf".text = lib.mkIf config.services.lvm.enable ''
         devices/types = [ "cas", 16 ]
+        devices/scan = [ "/dev", "/dev/disk/by-id", "/dev/disk/by-path" ]
         devices/global_filter = [ ${lib.concatMapStringsSep ", " (d: ''"r|^${d}$|"'') rawDevices}, "a|.*|" ]
       '';
     }
