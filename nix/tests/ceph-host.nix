@@ -381,6 +381,9 @@ pkgs.testers.runNixOSTest {
                  3600)
               ceph("-s")
               ceph("config set osd osd_memory_target 939524096")
+              # The CI VMs have slow disks and links; these warnings come and go and say nothing about the host.
+              for code in ["BLUESTORE_SLOW_OP_ALERT", "OSD_SLOW_PING_TIME_BACK", "OSD_SLOW_PING_TIME_FRONT"]:
+                  ceph(f"health mute {code} --sticky")
 
           with subtest("host add and OSDs on both hosts"):
               cpub = node1.succeed("cat /etc/ceph/ceph.pub").strip()
