@@ -12,7 +12,7 @@
     {
       formatter.${system} = pkgs.nixfmt;
 
-      packages.${system} = { };
+      packages.${system} = import ./nix/images { inherit pkgs self; };
 
       nixosModules = { };
 

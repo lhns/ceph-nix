@@ -1,0 +1,51 @@
+name: ceph
+# Image build and the tests that take its tarball (ADR 0006). Dispatch with `image` to test another flake package,
+# e.g. the Umbrella image built on the self-hosted builder.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Flake package (streamed image) to build and test
+        default: ceph-image-tentacle
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  IMAGE_PKG: ${{ inputs.image || 'ceph-image-tentacle' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.load.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            system-features = nixos-test benchmark big-parallel kvm
+      - name: nix build
+        run: nix build -L --no-link --print-out-paths ".#$IMAGE_PKG" | tee stream.path
+      - name: docker load and save
+        id: load
+        run: |
+          $(cat stream.path) | tee load.log | zstd -T0 -3 -o image.tar.zst
+          zstd -dc image.tar.zst | docker load | tee load.log
+          tag=$(sed -n 's/^Loaded image: //p' load.log)
+          echo "tag=$tag" | tee -a "$GITHUB_OUTPUT"
+          docker images
+          {
+            echo '### Image'
+            echo "$tag: $(docker image inspect -f '{{.Size}}' "$tag" | numfmt --to=iec) uncompressed, $(du -h image.tar.zst | cut -f1) zstd"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: image
+          path: image.tar.zst
+          retention-days: 7
+          compression-level: 0
