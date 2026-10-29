@@ -34,7 +34,7 @@ let
           # cephadm's NFS containers don't get; make the option's default "tolerate failure".
           postPatch = (old.postPatch or "") + ''
             f=$(grep -rl allow_set_io_flusher_fail src | head -n1)
-            sed -i 's/\("allow_set_io_flusher_fail",[[:space:]]*\)false/true/' "$f"
+            sed -i 's/\("allow_set_io_flusher_fail",[[:space:]]*\)false/\1true/' "$f"
             grep -q '"allow_set_io_flusher_fail",[[:space:]]*true' "$f"
           '';
         });
