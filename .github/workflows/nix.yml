@@ -22,9 +22,9 @@ jobs:
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
-      # No local Nix on the dev machine: branches get flake.lock and formatting written here.
+      # No local Nix on the dev machine: pushes get flake.lock and formatting written here.
       - name: flake.lock and nixfmt
-        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        if: github.event_name == 'push'
         run: |
           nix flake lock
           git ls-files -z '*.nix' | xargs -0 nix fmt --
