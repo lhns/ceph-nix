@@ -48,7 +48,8 @@ collect() { # upstream's collect_logs, plus the namespaces it doesn't cover
 }
 trap collect ERR
 
-make e2e.test
+# `make e2e.test` first checks for the Ceph headers, which the e2e module itself doesn't use
+(cd e2e && go test -mod=vendor -c -o ../e2e.test ./)
 for i in 1 2 3; do
 	scripts/github-action-helper.sh install_minikube_prereqs
 	! ls /usr/local/bin/cri-dockerd /usr/local/bin/crictl /opt/cni/bin/bridge /etc/systemd/system/cri-docker.service \
