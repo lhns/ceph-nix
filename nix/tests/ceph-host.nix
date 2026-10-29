@@ -295,7 +295,15 @@ pkgs.testers.runNixOSTest {
       # aes key for a kernel client and mutes the mon's warning about it.
       def kernel_key():
           ceph("mon set auth_allowed_ciphers aes,aes256k")
-          key = quiet("ceph auth get-or-create-key client.kern mon 'allow *' osd 'allow *' mds 'allow *' --key_type aes")
+          # the mons take a moment to apply the new cipher list
+          for attempt in range(12):
+              rc, out = node1.execute(
+                  "cephadm shell -- ceph auth get-or-create-key client.kern mon 'allow *' osd 'allow *' "
+                  "mds 'allow *' --key_type aes </dev/null 2>/dev/null", timeout=600)
+              if rc == 0:
+                  break
+              time.sleep(10)
+          key = out.strip()
           assert key.startswith("AQ"), key
           for code in ["AUTH_INSECURE_KEYS_ALLOWED", "AUTH_INSECURE_KEYS_CREATABLE", "AUTH_INSECURE_CLIENT_KEY_TYPE"]:
               ceph(f"health mute {code} --sticky")
