@@ -1,0 +1,12 @@
+name: explore
+on:
+  push:
+    paths: [.github/workflows/explore.yml]
+jobs:
+  x:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          img=quay.io/ceph/ceph:v20.2.4@sha256:6bb1c8a42fbc0bf87938946990b65174466997bc11c31eb5a323225a779fd8f9
+          docker pull -q $img
+          docker run --rm --entrypoint sh $img -c 'ls /usr/share/ceph/mgr/dashboard | head -50; ls -la /usr/share/ceph/mgr/dashboard/frontend 2>&1 | head; find /usr/share/ceph -name "index.html" -o -name "*.js" -path "*dist*" | head; find /usr/share/ceph/mgr -type f | wc -l; rpm -qf /usr/share/ceph/mgr/dashboard/__init__.py; rpm -qa | grep -i dashboard'
