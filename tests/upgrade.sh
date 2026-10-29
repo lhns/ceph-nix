@@ -29,7 +29,15 @@ to_image=$reg/ceph-nix:upgrade
 tool_image=
 # shellcheck source=lib.sh
 . "$here/lib.sh"
-trap 'rc=$?; [ $rc -eq 0 ] || collect; exit $rc' EXIT
+# a hung command (kernel mounts can sit in D state) must leave evidence: process states and kernel log every 5 minutes
+( while sleep 300; do
+	echo "::group::watchdog $(date +%T)"
+	ps -eo pid,stat,wchan:32,etime,cmd | awk 'NR == 1 || $2 ~ /^D/ || /mount|umount|rbd|podman exec/' | cut -c1-200
+	sudo dmesg | tail -n 30
+	echo "::endgroup::"
+done ) &
+watchdog=$!
+trap 'rc=$?; kill $watchdog 2>/dev/null; [ $rc -eq 0 ] || collect; exit $rc' EXIT
 
 summary() { echo "$*" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"; }
 new_toolbox() { # new_toolbox IMAGE: admin container from that image
@@ -274,6 +282,8 @@ got_version=$(jq -r '.overall | keys[0]' "$art/after/versions.json" | sed -E 's/
 endstep
 
 step "after: data intact"
+PS4='+ [$(date +%T)] '
+set -x
 tbx rados -p ecpool get obj /tmp/ec.out
 sudo podman cp toolbox:/tmp/ec.out "$work/ec.out"
 cmp "$work/ec.in" "$work/ec.out"
@@ -296,6 +306,7 @@ wait_for 120 "nfs mount" mount_nfs || {
 check_files /mnt/nfs/nfsdata "$work/nfs.md5"
 sudo umount /mnt/nfs
 python3 "$work/s3.py" get "http://$ip:8080" "$work/s3.json"
+set +x
 # and the upgraded cluster takes new writes
 tbx ceph osd pool create post 8 >/dev/null
 tbx ceph osd pool application enable post rados

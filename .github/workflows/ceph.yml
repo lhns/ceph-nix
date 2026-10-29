@@ -137,6 +137,7 @@ jobs:
         with:
           name: image
       - name: upgrade.sh
+        timeout-minutes: 75
         env:
           ARTIFACT_DIR: ${{ github.workspace }}/upgrade-logs
         run: tests/upgrade.sh "$UPSTREAM_IMAGE" image.tar.zst
