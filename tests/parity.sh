@@ -24,8 +24,10 @@ for img in "$up" "$ours"; do
 done
 
 # --- file tree
-run "$up" 'for d in /usr/bin /usr/sbin /usr/libexec/ceph /usr/lib64/ceph /usr/share/ceph/mgr /usr/share/ceph/mgr/dashboard /usr/share/ceph/mgr/dashboard/frontend; do
-	ls -A "$d" 2>/dev/null | grep -v __pycache__ | sed "s|^|$d/|"; done; true' </dev/null | sort -u >"$work/upstream.txt"
+# the mgr tree is compared file by file (module code, dashboard frontend), the rest by directory entry
+run "$up" 'for d in /usr/bin /usr/sbin /usr/libexec/ceph /usr/lib64/ceph; do
+	ls -A "$d" 2>/dev/null | sed "s|^|$d/|"; done
+	find /usr/share/ceph/mgr \( -type f -o -type l \) ! -path '*/__pycache__/*' ! -name '*.pyc' 2>/dev/null; true' </dev/null | sort -u >"$work/upstream.txt"
 echo "upstream entries: $(wc -l <"$work/upstream.txt")"
 # upstream's /usr/sbin may be /usr/bin (merged usr): an entry exists if it does in either place
 run "$ours" 'while read -r p; do [ -e "$p" ] || echo "$p"; done' <"$work/upstream.txt" | sort -u >"$work/missing.txt"
@@ -65,10 +67,16 @@ if [ -s "$work/pending.txt" ]; then
 	[ "${PARITY_PENDING_OK:-}" = 1 ] || fail "pending gaps and PARITY_PENDING_OK is not 1"
 fi
 echo "== allowed"; cat "$work/allowed.txt"
-# stale list entries
+# stale list entries: an allow entry that explains no gap is a failure, a pending one only a notice
 for l in allow pending; do
 	while IFS= read -r p; do
-		grep -q -x -e "$(sed 's/[][\.^$]/\&/g; s/\*/.*/g; s/?/./g' <<<"$p")" "$work/missing.txt" || echo "NOTE: unused $l entry: $p"
+		used=
+		while IFS= read -r path; do
+			# shellcheck disable=SC2254
+			case $path in $p) used=1; break ;; esac
+		done <"$work/missing.txt"
+		[ -n "$used" ] && continue
+		if [ $l = allow ]; then fail "unused allow entry: $p"; else echo "NOTE: unused pending entry: $p"; fi
 	done <"$work/$l.pat"
 done
 

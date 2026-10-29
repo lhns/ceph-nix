@@ -105,6 +105,13 @@ jobs:
         env:
           PARITY_PENDING_OK: ${{ env.PENDING_FEATURES == 'skip' && '1' || '0' }}
         run: tests/parity.sh "$UPSTREAM_IMAGE" "${{ needs.build.outputs.tag }}" "$EXPECTED_VERSION"
+      - name: pending gaps must show up (dashboard UI) when not tolerated
+        if: env.PENDING_FEATURES == 'skip'
+        run: |
+          if PARITY_PENDING_OK=0 tests/parity.sh "$UPSTREAM_IMAGE" "${{ needs.build.outputs.tag }}" "$EXPECTED_VERSION" | tee strict.log; then
+            echo "parity passed without PARITY_PENDING_OK, so pending gaps are not detected"; exit 1
+          fi
+          grep -q "^/usr/share/ceph/mgr/dashboard/frontend/dist/" strict.log
 
   cephadm:
     needs: build
