@@ -128,6 +128,8 @@ let
         "L+ /bin/bash - - - - ${pkgs.bash}/bin/bash"
         "L+ /bin/rm - - - - ${pkgs.coreutils}/bin/rm"
         "L+ /usr/bin/python3 - - - - ${pkgs.python3}/bin/python3"
+        # Every cephadm invocation writes /etc/logrotate.d/cephadm and fails if the dir is missing.
+        "d /etc/logrotate.d 0755 root root - -"
       ];
       # cephadm units read EnvironmentFile=-/etc/environment; their ExecStop runs `bash` from PATH,
       # which systemd's default PATH on NixOS lacks. NixOS's pam_env does not read this file.
