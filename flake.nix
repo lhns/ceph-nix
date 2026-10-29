@@ -14,9 +14,37 @@
 
       packages.${system} = { };
 
-      nixosModules = { };
+      nixosModules.builder = import ./nix/modules/builder.nix;
 
       checks.${system} = {
+        # Evaluates a system using the builder module, without building it.
+        builder-eval =
+          let
+            sys = nixpkgs.lib.nixosSystem {
+              inherit system;
+              modules = [
+                self.nixosModules.builder
+                {
+                  services.ceph-nix-builder = {
+                    enable = true;
+                    runner.tokenFile = "/run/secrets/runner-token";
+                    cache.signingKeyFile = "/run/secrets/cache-key";
+                    gcRoots = [ pkgs.hello ];
+                  };
+                  boot.loader.grub.enable = false;
+                  fileSystems."/" = {
+                    device = "none";
+                    fsType = "tmpfs";
+                  };
+                  system.stateVersion = "26.05";
+                }
+              ];
+            };
+          in
+          pkgs.writeText "builder-eval" (
+            builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath
+          );
+
         formatting =
           pkgs.runCommand "formatting"
             {
