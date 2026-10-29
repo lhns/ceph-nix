@@ -16,4 +16,6 @@ are never overwritten. Each GitHub release records the image digest and the `fla
 
 - Scheduled bumps are cheap: no change in digest, no release.
 - A rebuild with a new nixpkgs (e.g. a security fix) gets the next `<n>`.
-- The Tentacle dev image (cached 20.2.4) is not published as a release.
+- Two tracks are released: `v20.2.4-<n>` (Tentacle) and `v21.2.0-<n>` (Umbrella). Tentacle lets a cephadm
+  cluster on upstream 20.2.4 switch to our image at the same version (`ceph orch upgrade`), then upgrade to
+  Umbrella. Both must pass the same parity and functional tests before release.
