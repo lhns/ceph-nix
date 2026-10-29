@@ -130,6 +130,10 @@ let
         "L+ /usr/bin/python3 - - - - ${pkgs.python3}/bin/python3"
         # Every cephadm invocation writes /etc/logrotate.d/cephadm and fails if the dir is missing.
         "d /etc/logrotate.d 0755 root root - -"
+        # ceph-volume runs LVM tools on the host via nsenter, looking them up only in
+        # /usr/local/bin, /bin, /usr/bin, /usr/local/sbin, /usr/sbin and /sbin, probing with /bin/ls.
+        "L+ /bin/ls - - - - ${pkgs.coreutils}/bin/ls"
+        "L+ /usr/sbin - - - - ${lib.getBin pkgs.lvm2}/bin"
       ];
       # cephadm units read EnvironmentFile=-/etc/environment; their ExecStop runs `bash` from PATH,
       # which systemd's default PATH on NixOS lacks. NixOS's pam_env does not read this file.
@@ -199,12 +203,20 @@ pkgs.testers.runNixOSTest {
         port = 5000;
         openFirewall = true;
       };
+      # No internet: node1 serves time to node2, or the mons see skew from the 1 s RTC.
+      services.chrony.extraConfig = ''
+        local stratum 10
+        allow 192.168.1.0/24
+      '';
+      networking.firewall.allowedUDPPorts = [ 123 ];
     };
     node2 = {
       imports = [
         (base "node2")
         cephHost
       ];
+      services.chrony.servers = [ "node1" ];
+      services.chrony.extraConfig = "makestep 0.1 -1";
     };
   };
 
