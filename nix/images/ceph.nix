@@ -25,10 +25,19 @@ let
     if ganesha != null then
       ganesha
     else
-      pkgs.nfs-ganesha.override {
+      (pkgs.nfs-ganesha.override {
         useCeph = true;
         inherit ceph;
-      };
+      }).overrideAttrs
+        (old: {
+          # Ganesha 9 (upstream's image has 5) aborts without CAP_SYS_RESOURCE (PR_SET_IO_FLUSHER), which
+          # cephadm's NFS containers don't get; make the option's default "tolerate failure".
+          postPatch = (old.postPatch or "") + ''
+            f=$(grep -rl allow_set_io_flusher_fail src | head -n1)
+            sed -i 's/\("allow_set_io_flusher_fail",[[:space:]]*\)false/true/' "$f"
+            grep -q '"allow_set_io_flusher_fail",[[:space:]]*true' "$f"
+          '';
+        });
 
   # Earlier entries win name clashes in /usr/bin.
   userland =
