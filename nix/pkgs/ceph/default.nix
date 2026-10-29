@@ -12,5 +12,10 @@
         hash = "sha256-gtPAJgkWG94TDHxBwzxfiztZGFzep355KbveLLxm44U=";
       };
     };
+
+    # 21.x's ceph.deployment.tls_utils (used by the service specs) imports cryptography.
+    ceph-python-common = prev.ceph-python-common.overridePythonAttrs (old: {
+      dependencies = old.dependencies ++ [ final.ceph-python.pkgs.cryptography ];
+    });
   }
 )).ceph
