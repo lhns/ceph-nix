@@ -230,6 +230,27 @@ let
       vgchange -an --noudevsync "$vg"
     done
   '';
+
+  # LVM event-activates a VG from a raw core as soon as udev sees it, a few seconds before the cache is
+  # loaded and before the by-id links its global_filter relies on exist. The activated LVs hold the
+  # core open, so Open CAS cannot attach it. Release them before open-cas.service attaches cores.
+  releaseRawDevices = pkgs.writeShellScript "opencas-release-raw-devices" ''
+    PATH=${
+      lib.makeBinPath [
+        pkgs.lvm2
+        pkgs.coreutils
+        pkgs.systemd
+      ]
+    }
+    udevadm settle --timeout=30
+    for dev in ${lib.escapeShellArgs rawDevices}; do
+      real=$(readlink -f "$dev") || continue
+      for holder in /sys/class/block/$(basename "$real")/holders/*; do
+        [ -e "$holder/dm/name" ] || continue
+        dmsetup remove "$(cat "$holder/dm/name")"
+      done
+    done
+  '';
 in
 {
   options.services.opencas = {
@@ -319,6 +340,7 @@ in
         "local-fs-pre.target"
       ];
       after = [ "systemd-modules-load.service" ];
+      serviceConfig.ExecStartPre = "-${releaseRawDevices}";
       serviceConfig.ExecStart = [
         ""
         "${cfg.package}/bin/casctl settle --timeout ${toString cfg.settleTimeout} --interval 5"
