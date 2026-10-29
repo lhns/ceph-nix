@@ -38,7 +38,8 @@ ceph orch host add <other-host> <ip>
 ceph orch daemon add osd <host>:/dev/<disk>  # or: ceph orch apply osd --all-available-devices
 ```
 
-Not supported: `system.etc.overlay.enable`. The VM test is `nix build .#test-ceph-host` (about 30 minutes).
+Not supported: `system.etc.overlay.enable`. The VM test is `nix build .#test-ceph-host` (about 30 minutes): cephadm on NixOS with our image on a CPU without
+AVX2, with `.#test-ceph-cpu` as negative control (upstream's image cannot start there).
 
 ## Builder
 

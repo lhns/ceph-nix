@@ -1,4 +1,5 @@
-# Slow NixOS VM tests (outside `nix flake check`): the cephadm host module on two nodes, ~30 minutes.
+# Slow NixOS VM tests (outside `nix flake check`): the negative control (upstream's image fails on a CPU without
+# AVX2, ours runs) and the cephadm host module with our image on such a CPU, on two nodes (~30 minutes).
 name: vm-tests
 on:
   workflow_dispatch:
@@ -8,7 +9,9 @@ on:
     paths:
       - nix/modules/**
       - nix/tests/**
-      - nix/pkgs/cephadm*
+      - nix/pkgs/cephadm.nix
+      - nix/pkgs/bundle-cephadm.py
+      - nix/images/**
       - nix/pkgs/patch-cephadm.py
       - nix/ceph-image.json
       - flake.nix
@@ -19,7 +22,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ceph-host:
+  vm-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [test-ceph-cpu, test-ceph-host]
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
@@ -37,6 +44,6 @@ jobs:
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
-      - run: nix build -L --no-link .#test-ceph-host
+      - run: nix build -L --no-link .#${{ matrix.test }}
       - if: always()
         run: df -h /

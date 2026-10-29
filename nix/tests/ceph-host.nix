@@ -7,42 +7,35 @@
   pkgs,
   self,
   nixos-cloudinit,
-  # docker-archive of the image the cluster runs; the default is the upstream release.
-  imageTarball ? null,
-  # name:tag the tarball carries
-  imageSource ? (
-    let
-      i = builtins.fromJSON (builtins.readFile ../ceph-image.json);
-    in
-    "${i.image}:${i.tag}"
-  ),
+  # Run the pinned upstream release instead of our image. It needs AVX2, so the CPU is not masked, and the
+  # cephadm of this repo (Ceph 20) is not the image's; best effort, not run in CI.
+  upstream ? false,
   # The upstream image's lvm.conf lacks `devices/types = ["cas", 16]`. With upstream v21.2.0 the OSD on
   # the cas-backed LV works anyway (ceph-volume runs the host's LVM through nsenter), but if an image
   # ever needs it, true reports a failing subtest as XFAIL instead of failing the test.
   casOsdXfail ? false,
-  # The upstream image needs AVX2 (x86-64-v3); our image is tested with a masked CPU instead.
-  cpuHost ? true,
-  # Kernel rbd/cephfs clients need the legacy `aes` cephx cipher on Ceph 21 (see kernel_key in the
-  # script); if they still cannot talk to the cluster the subtest is reported as XFAIL.
+  # If the kernel rbd/cephfs clients still cannot talk to the cluster, report the subtest as XFAIL.
   kernelClientsXfail ? false,
 }:
 
 let
   inherit (pkgs) lib;
 
-  imageInfo = builtins.fromJSON (builtins.readFile ../ceph-image.json);
+  common = import ./common.nix { inherit pkgs; };
+  inherit (common) imageInfo upstreamImage;
 
-  upstreamImage = pkgs.dockerTools.pullImage {
-    imageName = imageInfo.image;
-    imageDigest = imageInfo.digest;
-    # fixed-output hash of the amd64 pull; update together with ceph-image.json
-    hash = "sha256-l/1Eyay6CUxLYkj1NBFPGxHQh278U4w63csVZB3IQwM=";
-    finalImageName = imageInfo.image;
-    finalImageTag = imageInfo.tag;
-    os = "linux";
-    arch = "amd64";
-  };
-  tarball = if imageTarball != null then imageTarball else upstreamImage;
+  ours = self.packages.x86_64-linux.ceph-image-tentacle;
+  cephadm = self.packages.x86_64-linux.cephadm-tentacle;
+
+  imageVersion = if upstream then lib.removePrefix "v" imageInfo.tag else pkgs.ceph.version;
+  # Ceph 21 creates AES256KRB5 keys by default and the mons only allow that cipher, which the kernel client
+  # cannot use (see kernel_key). Older releases do not need the workaround.
+  aesWorkaround = lib.versionAtLeast imageVersion "21";
+
+  # load the image into the VM's podman, and the name:tag it carries
+  loadImage = if upstream then "podman load -i ${upstreamImage}" else "set -o pipefail; ${ours} | podman load";
+  imageSource = if upstream then "${imageInfo.image}:${imageInfo.tag}" else "localhost/ceph-nix:${imageVersion}";
+  cpu = if upstream then "host" else common.maskedCpu;
 
   registry = "node1:5000";
   image = "${registry}/ceph/ceph:test";
@@ -98,6 +91,7 @@ let
     services.ceph-host = {
       enable = true;
       inherit image;
+      cephadmPackage = cephadm.host;
       orchestratorKeys = [ keys.snakeOilPublicKey ];
     };
     virtualisation.containers.registries.insecure = [ registry ];
@@ -106,8 +100,8 @@ let
     virtualisation = {
       cores = 2;
       memorySize = 5120;
-      diskSize = 16384;
-      qemu.options = lib.mkIf cpuHost (lib.mkAfter [ "-cpu host" ]);
+      diskSize = 24576; # the image is loaded, pushed to the registry and pulled
+      qemu.options = lib.mkAfter [ "-cpu ${cpu}" ];
     };
   };
 in
@@ -181,6 +175,7 @@ pkgs.testers.runNixOSTest {
       ip2 = "${nodes.node2.networking.primaryIPAddress}"
       hosts = [node1, node2]
       CAS_OSD_XFAIL = ${if casOsdXfail then "True" else "False"}
+      AES_WORKAROUND = ${if aesWorkaround then "True" else "False"}
       KERNEL_XFAIL = ${if kernelClientsXfail then "True" else "False"}
 
 
@@ -290,23 +285,25 @@ pkgs.testers.runNixOSTest {
           return node1.succeed(f"{fsio} {op} </dev/null 2>/dev/null").strip()
 
 
-      # Kernel clients. Ceph 21 creates AES256KRB5 keys by default and the mons only allow that cipher,
-      # which the kernel client cannot use. This enables the legacy `aes` cipher cluster-wide, creates an
-      # aes key for a kernel client and mutes the mon's warning about it.
+      # Kernel clients. On Ceph 21 (AES_WORKAROUND) the default AES256KRB5 keys are unusable for the kernel
+      # client: this enables the legacy `aes` cipher cluster-wide, creates an aes key for the client and mutes the
+      # mon's warning about it. Older releases get a plain key.
       def kernel_key():
-          ceph("mon set auth_allowed_ciphers aes,aes256k")
+          if AES_WORKAROUND:
+              ceph("mon set auth_allowed_ciphers aes,aes256k")
           # the mons take a moment to apply the new cipher list
           for attempt in range(12):
               rc, out = node1.execute(
                   "cephadm shell -- ceph auth get-or-create-key client.kern mon 'allow *' osd 'allow *' "
-                  "mds 'allow *' --key_type aes </dev/null 2>/dev/null", timeout=600)
+                  f"mds 'allow *' {'--key_type aes' if AES_WORKAROUND else ''} </dev/null 2>/dev/null", timeout=600)
               if rc == 0:
                   break
               time.sleep(10)
           key = out.strip()
           assert key.startswith("AQ"), key
-          for code in ["AUTH_INSECURE_KEYS_ALLOWED", "AUTH_INSECURE_KEYS_CREATABLE", "AUTH_INSECURE_CLIENT_KEY_TYPE"]:
-              ceph(f"health mute {code} --sticky")
+          if AES_WORKAROUND:
+              for code in ["AUTH_INSECURE_KEYS_ALLOWED", "AUTH_INSECURE_KEYS_CREATABLE", "AUTH_INSECURE_CLIENT_KEY_TYPE"]:
+                  ceph(f"health mute {code} --sticky")
           return key
 
 
@@ -346,6 +343,12 @@ pkgs.testers.runNixOSTest {
           m.wait_for_unit("sshd.service")
       node1.copy_from_host("${fsioScript}", "/var/tmp/fsio.py")
 
+      ${lib.optionalString (!upstream) ''
+        # first: the guests are v2-only, so everything below runs without AVX2
+        for m in hosts:
+            m.succeed("test $(grep -c avx2 /proc/cpuinfo) = 0")
+      ''}
+
       try:
           with subtest("host facts"):
               for m in hosts:
@@ -373,9 +376,9 @@ pkgs.testers.runNixOSTest {
           with subtest("registry with the image"):
               node1.wait_for_unit("docker-registry.service")
               node1.wait_for_open_port(5000)
-              ok(node1, "podman load -i ${tarball}", 1800)
+              ok(node1, "${loadImage}", 3600)
               ok(node1, "podman tag ${imageSource} ${image}")
-              ok(node1, "podman push --tls-verify=false ${image}", 1800)
+              ok(node1, "podman push --tls-verify=false ${image}", 3600)
               # Re-pull so the local RepoDigest is the registry's: cephadm pins that digest for other hosts.
               ok(node1, "podman rmi ${imageSource} ${image} && podman pull ${image}", 1800)
 

@@ -39,6 +39,7 @@
         open-cas-kmod = ocPkgs.linuxPackages.open-cas;
         # Slow VM test (about 30 minutes): run by .github/workflows/vm-tests.yml, not part of `checks`.
         test-ceph-host = import ./nix/tests/ceph-host.nix { inherit pkgs self nixos-cloudinit; };
+        test-ceph-cpu = import ./nix/tests/ceph-cpu.nix { inherit pkgs self; };
       };
 
       nixosModules = {
