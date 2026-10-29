@@ -76,7 +76,7 @@ pkgs.testers.runNixOSTest {
 
     with subtest("LVM accepts cas devices"):
         machine.succeed("lvmconfig devices/types | tee /dev/stderr | grep -F '\"cas\"'")
-        print(machine.execute("lvmconfig devices/global_filter; pvs -vvvv 2>&1 | grep -E "alias|reject|filter-regex" | head -30; udevadm info /dev/vdc | grep -i -E 'DEVLINKS|by-id'; pvs -vvvv 2>&1 | grep -i -E 'filter|vdc' | head -40")[1])
+        print(machine.execute("lvmconfig devices/global_filter; pvs -vvvv 2>&1 | grep -E 'alias|reject|filter-regex' | head -30; udevadm info /dev/vdc | grep -i -E 'DEVLINKS|by-id'; pvs -vvvv 2>&1 | grep -i -E 'filter|vdc' | head -40")[1])
         machine.succeed("pvcreate /dev/cas1-1 && vgcreate vgcas /dev/cas1-1 && lvcreate -L 32M -n lv vgcas")
         machine.succeed("lvremove -y vgcas/lv && vgremove -y vgcas && pvremove -y /dev/cas1-1")
 
