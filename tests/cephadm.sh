@@ -199,9 +199,9 @@ import boto3
 
 s3 = boto3.client("s3", endpoint_url=f"http://{sys.argv[1]}:8080", aws_access_key_id="AKIATEST",
                   aws_secret_access_key="SECRETTEST", region_name="us-east-1")
-s3.create_bucket(Bucket="b")
-s3.put_object(Bucket="b", Key="k", Body=b"hello rgw")
-assert s3.get_object(Bucket="b", Key="k")["Body"].read() == b"hello rgw"
+s3.create_bucket(Bucket="testbucket")
+s3.put_object(Bucket="testbucket", Key="k", Body=b"hello rgw")
+assert s3.get_object(Bucket="testbucket", Key="k")["Body"].read() == b"hello rgw"
 print("s3 ok")
 PY
 sleep 5
