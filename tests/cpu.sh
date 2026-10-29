@@ -41,6 +41,10 @@ cmds=(
 	"/usr/bin/ganesha-rados-grace|--help"
 	"/usr/sbin/rpcbind|-h"
 	"/usr/bin/dbus-daemon|--version"
+	"/usr/bin/tcmu-runner|--help"
+	"/usr/bin/lsmcli|--version"
+	"/usr/bin/lsmd|--help"
+	"/usr/bin/simc_lsmplugin|--help"
 	"/usr/bin/lua|-v"
 	"/usr/bin/luarocks|--version"
 	"/usr/bin/mount|--version"
@@ -62,7 +66,7 @@ cmds=(
 	"/usr/bin/hostname|--version"
 	"/usr/bin/ls|--version"
 	"/usr/bin/bash|--version"
-	"/usr/bin/python3|-c|import rados, rbd, cephfs, numpy, sklearn, cryptography, jinja2"
+	"/usr/bin/python3|-c|import rados, rbd, cephfs, numpy, sklearn, cryptography, jinja2, lsm, flask, netifaces, rtslib_fb, configshell_fb, ceph_iscsi_config.settings, gwcli"
 	"/usr/libexec/ceph-nix/smoke"
 )
 

@@ -9,6 +9,9 @@
   smoke ? null, # derivation with libexec/ceph-nix/smoke (nix/pkgs/ceph-smoke.nix), for tests/cpu.sh
   extraPython ? [ ], # python packages the mgr needs beyond ceph.pythonEnv, from the same python
   extraPackages ? [ ],
+  # iSCSI gateway runtime and libstoragemgmt (nix/pkgs); ceph-iscsi itself comes in extraPython and extraPackages
+  tcmuRunner ? null,
+  libstoragemgmt ? null,
   version,
   cephRef, # CEPH_REF / CEPH_VERSION, as upstream sets them (the release branch name)
   rev ? "dirty",
@@ -108,12 +111,18 @@ let
     ]
     ++ extraPackages;
 
+  extraBin = lib.filter (p: p != null) [
+    tcmuRunner
+    libstoragemgmt
+  ];
+
   binPackages = [
     cephadm
     ceph
     pyEnv
     ganeshaPkg
   ]
+  ++ extraBin
   ++ map lib.getBin userland
   # tools that nixpkgs puts in the default output rather than the bin one (lvm2's blkdeactivate, fsadm, ...)
   ++ userland;
@@ -124,6 +133,8 @@ let
       "${ceph}/${sitePackages}"
     ]
     ++ lib.optional (extraPython != [ ]) (python.pkgs.makePythonPath extraPython)
+    # not a python package: the lsm binding and the sim plugin sit in its prefix
+    ++ lib.optional (libstoragemgmt != null) "${libstoragemgmt}/${sitePackages}"
   );
 
   # The udev settings from upstream's Containerfile (the container can't reach udev), plus the Open CAS block device
@@ -202,42 +213,55 @@ let
   # The FHS view: /usr/bin, /usr/sbin (same directory), /usr/libexec/ceph, /usr/lib64, /usr/share/ceph.
   # Plain symlinks into the store, so everything resolves.
   fhs = pkgs.runCommand "ceph-image-fhs" { } ''
-    mkdir -p $out/usr/bin $out/usr/libexec $out/usr/lib64 $out/usr/share
-    for p in ${lib.concatStringsSep " " binPackages}; do
-      for d in bin sbin; do
-        [ -d "$p/$d" ] || continue
-        for f in "$p/$d"/*; do
-          b=''${f##*/}
-          [ -e "$out/usr/bin/$b" ] || [ -L "$out/usr/bin/$b" ] || ln -s "$f" "$out/usr/bin/$b"
+        mkdir -p $out/usr/bin $out/usr/libexec $out/usr/lib64 $out/usr/share
+        for p in ${lib.concatStringsSep " " binPackages}; do
+          for d in bin sbin; do
+            [ -d "$p/$d" ] || continue
+            for f in "$p/$d"/*; do
+              b=''${f##*/}
+              [ -e "$out/usr/bin/$b" ] || [ -L "$out/usr/bin/$b" ] || ln -s "$f" "$out/usr/bin/$b"
+            done
+          done
         done
-      done
-    done
-    ln -s tar $out/usr/bin/gtar
-    ln -s bin $out/usr/sbin
-    ln -s usr/bin $out/bin
-    ln -s usr/sbin $out/sbin
+        ln -s tar $out/usr/bin/gtar
+        ln -s bin $out/usr/sbin
+        ln -s usr/bin $out/bin
+        ln -s usr/sbin $out/sbin
 
-    ln -s ${ceph.lib}/libexec/ceph $out/usr/libexec/ceph
-    ln -s ${ceph.lib}/lib/ceph $out/usr/share/ceph
-    ln -s ${pkgs.tzdata}/share/zoneinfo $out/usr/share/zoneinfo
-    ln -s ${pkgs.dbus}/share/dbus-1 $out/usr/share/dbus-1
-    for l in ${ceph.lib}/lib/* ${ganeshaPkg}/lib/*; do
-      [ -e "$out/usr/lib64/''${l##*/}" ] || ln -s "$l" "$out/usr/lib64/"
-    done
-    ${lib.optionalString (smoke != null) ''
-      mkdir -p $out/usr/libexec/ceph-nix
-      ln -s ${smoke}/libexec/ceph-nix/smoke $out/usr/libexec/ceph-nix/smoke
+        ln -s ${ceph.lib}/libexec/ceph $out/usr/libexec/ceph
+        ln -s ${ceph.lib}/lib/ceph $out/usr/share/ceph
+        ln -s ${pkgs.tzdata}/share/zoneinfo $out/usr/share/zoneinfo
+        ln -s ${pkgs.dbus}/share/dbus-1 $out/usr/share/dbus-1
+    ${lib.optionalString (tcmuRunner != null) ''
+      # the tcmu-runner RPM's config and dbus policy; its handlers are found through /usr/lib64/tcmu-runner (linked below with the libraries)
+      mkdir -p $out/etc/dbus-1/system.d $out/etc/logrotate.d
+      ln -s ${tcmuRunner}/etc/tcmu $out/etc/tcmu
+      ln -s ${tcmuRunner}/etc/logrotate.d/tcmu-runner $out/etc/logrotate.d/tcmu-runner
+      ln -s ${tcmuRunner}/etc/dbus-1/system.d/tcmu-runner.conf $out/etc/dbus-1/system.d/tcmu-runner.conf
     ''}
-    mkdir -p $out/etc/ssl/certs $out/etc/dbus-1
-    # the RPC library (ganesha's registration with rpcbind) needs netconfig, protocols, services and rpc
-    for f in netconfig; do ln -s ${pkgs.libtirpc}/etc/$f $out/etc/$f; done
-    for f in protocols services; do ln -s ${pkgs.iana-etc}/etc/$f $out/etc/$f; done
-    ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-bundle.crt
-    ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-certificates.crt
-    # nixpkgs' system.conf includes /etc/dbus-1/system.conf (NixOS overrides), which is itself here; its bus user is
-    # messagebus, ours is dbus (as on EL)
-    sed -e '/etc.dbus-1.system.conf/d' -e 's|<user>messagebus</user>|<user>dbus</user>|' ${pkgs.dbus}/share/dbus-1/system.conf > $out/etc/dbus-1/system.conf
-    sed -e '/etc.dbus-1.session.conf/d' ${pkgs.dbus}/share/dbus-1/session.conf > $out/etc/dbus-1/session.conf
+    ${lib.optionalString (libstoragemgmt != null) ''
+      ln -s ${libstoragemgmt}/etc/lsm $out/etc/lsm
+      ln -s ${libstoragemgmt}/libexec/lsm.d $out/usr/libexec/lsm.d
+    ''}
+        for l in ${ceph.lib}/lib/* ${ganeshaPkg}/lib/*${
+          lib.concatMapStrings (p: " ${p}/lib/*") extraBin
+        }; do
+          [ -e "$out/usr/lib64/''${l##*/}" ] || ln -s "$l" "$out/usr/lib64/"
+        done
+        ${lib.optionalString (smoke != null) ''
+          mkdir -p $out/usr/libexec/ceph-nix
+          ln -s ${smoke}/libexec/ceph-nix/smoke $out/usr/libexec/ceph-nix/smoke
+        ''}
+        mkdir -p $out/etc/ssl/certs $out/etc/dbus-1
+        # the RPC library (ganesha's registration with rpcbind) needs netconfig, protocols, services and rpc
+        for f in netconfig; do ln -s ${pkgs.libtirpc}/etc/$f $out/etc/$f; done
+        for f in protocols services; do ln -s ${pkgs.iana-etc}/etc/$f $out/etc/$f; done
+        ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-bundle.crt
+        ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-certificates.crt
+        # nixpkgs' system.conf includes /etc/dbus-1/system.conf (NixOS overrides), which is itself here; its bus user is
+        # messagebus, ours is dbus (as on EL)
+        sed -e '/etc.dbus-1.system.conf/d' -e 's|<user>messagebus</user>|<user>dbus</user>|' ${pkgs.dbus}/share/dbus-1/system.conf > $out/etc/dbus-1/system.conf
+        sed -e '/etc.dbus-1.session.conf/d' ${pkgs.dbus}/share/dbus-1/session.conf > $out/etc/dbus-1/session.conf
   '';
 in
 pkgs.dockerTools.streamLayeredImage {
@@ -250,6 +274,10 @@ pkgs.dockerTools.streamLayeredImage {
 
   fakeRootCommands = ''
     mkdir -p tmp root run/ceph run/ganesha run/dbus var/lib/ceph var/lib/nfs/ganesha var/log/ceph etc/ceph
+    ${lib.optionalString (tcmuRunner != null)
+      "mkdir -p etc/target/pr etc/target/alua var/target/pr var/target/alua var/log/rbd-target-api var/log/rbd-target-gw"
+    }
+    ${lib.optionalString (libstoragemgmt != null) "mkdir -p run/lsm/ipc"}
     ln -s ../run var/run
     chmod 1777 tmp
     chmod 700 root

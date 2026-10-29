@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Functional test of the image through cephadm, on a throwaway Ubuntu runner (ADR 0006).
 #   cephadm.sh IMAGE_TARBALL        docker-archive tarball, optionally zstd-compressed
-# Env: PENDING_FEATURES=skip   skip what only the Umbrella build provides: iSCSI
+# Env: SKIP_ISCSI=1           skip the iSCSI gateway leg (images without ceph-iscsi)
 #      ARTIFACT_DIR            where logs go on failure (default ./cephadm-logs)
 # Allowed health warnings: none. HEALTH_OK is required after the OSDs are up and again at the end.
 set -Eeuo pipefail
 tarball=$(realpath "$1")
 here=$(cd "$(dirname "$0")" && pwd)
 art=${ARTIFACT_DIR:-$PWD/cephadm-logs}
-pending=${PENDING_FEATURES:-}
 work=$(sudo mktemp -d /mnt/cephadm-test.XXXX)
 sudo chown "$USER" "$work"
 mkdir -p "$art"
@@ -68,9 +67,9 @@ step "host packages"
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -qq
 sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
-sudo apt-get install -y -qq podman lvm2 chrony openssh-server ceph-common nfs-common python3-boto3 zstd jq xfsprogs e2fsprogs curl >/dev/null
+sudo apt-get install -y -qq podman lvm2 chrony openssh-server ceph-common nfs-common python3-boto3 zstd jq xfsprogs e2fsprogs curl open-iscsi >/dev/null
 sudo systemctl enable --now chrony ssh
-for m in rbd ceph nfs; do
+for m in rbd ceph nfs target_core_user iscsi_target_mod iscsi_tcp; do
 	sudo modprobe "$m" 2>/dev/null || { sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" >/dev/null && sudo modprobe "$m"; }
 done
 endstep
@@ -134,6 +133,9 @@ tbx ceph osd pool application enable bench rados
 tbx rados bench -p bench 10 write --no-cleanup
 tbx rados bench -p bench 5 seq
 tbx rados -p bench cleanup
+tbx ceph config set mon mon_allow_pool_delete true
+# the 3-OSD test cluster is close to mon_max_pg_per_osd (TOO_MANY_PGS is a health warning): drop scratch pools
+tbx ceph osd pool rm bench bench --yes-i-really-really-mean-it
 endstep
 
 step "erasure-coded pool k=2 m=1"
@@ -147,6 +149,7 @@ tbx rados -p ecpool put obj /tmp/ec.in
 tbx rados -p ecpool get obj /tmp/ec.out
 sudo podman cp toolbox:/tmp/ec.out "$work/ec.out"
 cmp "$work/ec.in" "$work/ec.out"
+tbx ceph osd pool rm ecpool ecpool --yes-i-really-really-mean-it
 endstep
 
 step "rbd: krbd map, mkfs.ext4, I/O"
@@ -263,14 +266,17 @@ dashboard_ui() {
 wait_for 120 "dashboard UI" dashboard_ui || { curl -sik --max-time 20 https://127.0.0.1:8443/ 2>&1 | head -c 3000; tbx ceph mgr services; false; }
 endstep
 
-if [ "$pending" != skip ]; then
+if [ "${SKIP_ISCSI:-}" != 1 ]; then
 	step "iscsi: gateway, target, iscsiadm login, I/O"
-	sudo apt-get install -y -qq open-iscsi >/dev/null
 	"$here/cephadm-iscsi.sh" "$ip" "$work"
 	endstep
 else
-	echo "PENDING_FEATURES=skip: iSCSI not exercised"
+	echo "SKIP_ISCSI=1: iSCSI not exercised"
 fi
+
+step "libstoragemgmt: lsmd and the simulator plugin"
+sudo podman run --rm --entrypoint /bin/bash "$local_image" -c '(lsmd -d >/dev/null 2>&1 &); sleep 2; lsmcli -u sim:// list --type systems | grep -q sim-01'
+endstep
 
 step "final health"
 wait_for 300 "HEALTH_OK" health_ok || { tbx ceph health detail; exit 1; }
