@@ -161,25 +161,59 @@ let
   '';
 
   # Creates caches that hold no Open CAS metadata yet (first boot); known caches are left to
-  # open-cas.service, which loads them.
+  # open-cas.service, which loads them. Formatting happens at most once per cache id: a marker
+  # in /var/lib/opencas/initialized records it, and with a marker present a cache that does not
+  # load is an error, never a reason to format (dirty write-back data may sit behind it).
   initScript = pkgs.writeScript "opencas-init" ''
     #!${pkgs.python3}/bin/python3
+    import json
+    import os
+    import subprocess
     import sys
     sys.path.insert(0, "${cfg.package}/lib/opencas")
     import opencas
 
+    MARKER_DIR = "/var/lib/opencas/initialized"
+
+
+    def error(msg):
+        print(f"opencas-init: ERROR: {msg}", file=sys.stderr)
+
+
+    def serial(dev):
+        out = subprocess.run(["lsblk", "-dno", "SERIAL", dev], capture_output=True, text=True)
+        return out.stdout.strip()
+
+
     opencas.wait_for_cas_ctrl()
+    os.makedirs(MARKER_DIR, exist_ok=True)
     config = opencas.cas_config.from_file(opencas.cas_config.default_location, allow_incomplete=True)
+    failed = False
     for cache in config.caches.values():
         if opencas.is_cache_started(cache):
             continue
+        # A casadm error here raises and fails the unit without touching the device.
         if opencas.check_cache_device(cache.device)["Is cache"] == "yes":
+            continue
+        marker = os.path.join(MARKER_DIR, str(cache.cache_id))
+        if os.path.exists(marker):
+            error(f"cache {cache.cache_id} ({cache.device}) was initialized before but holds no "
+                  f"loadable Open CAS metadata; refusing to format it again. Check the device, "
+                  f"then remove {marker} to allow a new format.")
+            failed = True
+            continue
+        if subprocess.run(["blkid", "-p", cache.device], capture_output=True).returncode != 2:
+            error(f"{cache.device} carries a signature or could not be probed; refusing to format it")
+            failed = True
             continue
         print(f"opencas-init: creating cache {cache.cache_id} on {cache.device}")
         opencas.start_cache(cache, load=False, force=True)
+        with open(marker, "w") as f:
+            json.dump({"device": os.path.realpath(cache.device), "serial": serial(cache.device)}, f)
         opencas.configure_cache(cache)
         for core in cache.cores.values():
             opencas.add_core(core, False)
+    sys.exit(1 if failed else 0)
   '';
 in
 {
@@ -225,6 +259,9 @@ in
         Create caches whose device has no Open CAS metadata at boot (casadm --start-cache --force),
         then add their cores. Without it, a new cache has to be created once with `casctl init`.
         This overwrites the cache device, so only enable it for devices dedicated to caching.
+        A cache is formatted at most once: `blkid -p` must find no signature, and the unit records
+        /var/lib/opencas/initialized/<cache id>. If that marker exists and the cache does not load,
+        the unit fails with an error instead of formatting again (remove the marker to allow it).
       '';
     };
 

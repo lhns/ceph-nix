@@ -74,6 +74,14 @@ pkgs.testers.runNixOSTest {
         assert modes["10"] == "wt", modes
         assert modes["0"] in ("", "-"), modes
 
+    with subtest("LVM accepts cas devices"):
+        machine.succeed("lvmconfig devices/types | tee /dev/stderr | grep -F '\"cas\"'")
+        machine.succeed("pvcreate /dev/cas1-1 && vgcreate vgcas /dev/cas1-1 && lvcreate -L 32M -n lv vgcas")
+        machine.succeed("lvremove -y vgcas/lv && vgremove -y vgcas && pvremove -y /dev/cas1-1")
+
+    with subtest("first boot recorded the init marker"):
+        machine.succeed("test -s /var/lib/opencas/initialized/1")
+
     with subtest("I/O through the core changes the stats"):
         before = machine.succeed("casadm -P -i 1 -o csv")
         machine.succeed("dd if=/dev/urandom of=/tmp/ref bs=1M count=64")
@@ -100,6 +108,13 @@ pkgs.testers.runNixOSTest {
         machine.succeed("casctl stop")
         out = machine.succeed("casadm -L")
         print(out)
+        machine.fail("casadm -L -o csv | grep -E '^cache,'")
+
+    with subtest("damaged cache metadata is never reformatted"):
+        machine.succeed("dd if=/dev/zero of=/dev/disk/by-id/virtio-OCCACHE bs=1M count=8 oflag=direct")
+        machine.fail("systemctl restart opencas-init.service")
+        machine.succeed("journalctl -u opencas-init.service | grep -F 'refusing to format'")
+        machine.succeed("test -s /var/lib/opencas/initialized/1")
         machine.fail("casadm -L -o csv | grep -E '^cache,'")
   '';
 }
