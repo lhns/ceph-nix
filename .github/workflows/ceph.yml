@@ -34,7 +34,7 @@ jobs:
       - name: docker load and save
         id: load
         run: |
-          $(cat stream.path) | tee load.log | zstd -T0 -3 -o image.tar.zst
+          $(cat stream.path) | zstd -T0 -3 -o image.tar.zst
           zstd -dc image.tar.zst | docker load | tee load.log
           tag=$(sed -n 's/^Loaded image: //p' load.log)
           echo "tag=$tag" | tee -a "$GITHUB_OUTPUT"
