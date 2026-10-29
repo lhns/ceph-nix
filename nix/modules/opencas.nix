@@ -148,6 +148,8 @@ let
     in
     "${id}\t${c.device}\t${c.mode}${lib.optionalString (extra != "") "\t${extra}"}";
 
+  rawDevices = lib.concatLists (lib.mapAttrsToList (_: c: [ c.device ] ++ c.cores) cfg.caches);
+
   coreLines = id: c: lib.imap1 (n: dev: "${id}\t${toString n}\t${dev}") c.cores;
 
   opencasConf = ''
@@ -283,8 +285,11 @@ in
     environment.etc = {
       "opencas/opencas.conf".text = opencasConf;
       # LVM ignores unknown block devices; cas devices need an explicit type (max 16 partitions).
+      # The raw cache and core devices must not be scanned: a core carries the same PV signature as
+      # its cas device, which makes LVM refuse both ("duplicates").
       "lvm/lvm.conf".text = lib.mkIf config.services.lvm.enable ''
         devices/types = [ "cas", 16 ]
+        devices/global_filter = [ ${lib.concatMapStringsSep ", " (d: ''"r|^${d}$|"'') rawDevices}, "a|.*|" ]
       '';
     }
     // lib.mapAttrs' (
