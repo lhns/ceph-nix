@@ -9,6 +9,15 @@ on:
       image:
         description: Flake package (streamed image) to build and test
         default: ceph-image-tentacle
+      upstream_image:
+        description: Upstream image to compare with (parity.sh)
+        default: quay.io/ceph/ceph:v20.2.4@sha256:6bb1c8a42fbc0bf87938946990b65174466997bc11c31eb5a323225a779fd8f9
+      expected_version:
+        description: Expected `ceph -v` major.minor
+        default: "20.2"
+      pending_features:
+        description: skip = dashboard UI and iSCSI are not provided yet (Tentacle dev track); empty = test them
+        default: skip
 permissions:
   contents: read
 concurrency:
@@ -19,6 +28,11 @@ defaults:
     shell: bash # with pipefail
 env:
   IMAGE_PKG: ${{ inputs.image || 'ceph-image-tentacle' }}
+  UPSTREAM_IMAGE: ${{ inputs.upstream_image || 'quay.io/ceph/ceph:v20.2.4@sha256:6bb1c8a42fbc0bf87938946990b65174466997bc11c31eb5a323225a779fd8f9' }}
+  EXPECTED_VERSION: ${{ inputs.expected_version || '20.2' }}
+  PENDING_FEATURES: ${{ github.event_name == 'workflow_dispatch' && inputs.pending_features || 'skip' }}
+  # Known x86-64-v3 image: the negative control for the CPU test.
+  UPSTREAM_V3_IMAGE: quay.io/ceph/ceph:v21.2.0@sha256:c9e6ed4ac3fcf67b28f38358bb9619dee4d1dfb96ddd4b9b583eee316a15f04d
 
 jobs:
   build:
@@ -52,3 +66,97 @@ jobs:
           path: image.tar.zst
           retention-days: 7
           compression-level: 0
+
+  cpu:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: image
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static
+          zstd -dc image.tar.zst | docker load
+          docker pull -q "$UPSTREAM_V3_IMAGE"
+      - name: ours on Ivy Bridge
+        run: tests/cpu.sh "${{ needs.build.outputs.tag }}" IvyBridge pass
+      - name: ours on Nehalem (plain x86-64-v2, no AVX)
+        run: tests/cpu.sh "${{ needs.build.outputs.tag }}" Nehalem pass
+      - name: upstream v21.2.0 on Ivy Bridge must be refused
+        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" IvyBridge fail
+      - name: upstream v21.2.0 on Haswell runs (the harness is not the failure)
+        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" Haswell pass
+
+  parity:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: image
+      - run: |
+          zstd -dc image.tar.zst | docker load
+          docker pull -q "$UPSTREAM_IMAGE"
+      - name: parity with upstream
+        env:
+          PARITY_PENDING_OK: ${{ env.PENDING_FEATURES == 'skip' && '1' || '0' }}
+        run: tests/parity.sh "$UPSTREAM_IMAGE" "${{ needs.build.outputs.tag }}" "$EXPECTED_VERSION"
+
+  cephadm:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: image
+      - name: cephadm.sh
+        env:
+          ARTIFACT_DIR: ${{ github.workspace }}/cephadm-logs
+        run: tests/cephadm.sh image.tar.zst
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cephadm-logs
+          path: cephadm-logs
+          retention-days: 7
+
+  # Report-only (upstream's snyk jobs need a token).
+  scan:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: image
+      - run: |
+          zstd -d image.tar.zst -o image.tar
+          docker run --rm -v "$PWD/image.tar:/image.tar:ro" aquasec/trivy:latest image --quiet --input /image.tar             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - uses: actions/download-artifact@v8
+        with:
+          name: image
+      - run: zstd -dc image.tar.zst | docker load
+      - name: ceph-csi acceptance e2e on Rook with our Ceph image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tests/e2e.sh "${{ needs.build.outputs.tag }}"
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-logs
+          path: /tmp/acceptance-e2e-logs/
+          retention-days: 7
