@@ -248,7 +248,7 @@ endstep
 
 step "dashboard serves the Angular UI on 8443"
 dashboard_ui() { local ui; ui=$(curl -sk https://127.0.0.1:8443/) && grep -qi '<app-root' <<<"$ui"; }
-wait_for 120 "dashboard UI" dashboard_ui || { curl -skiv https://127.0.0.1:8443/ 2>&1 | head -40; tbx ceph mgr services; false; }
+wait_for 120 "dashboard UI" dashboard_ui || { curl -sik --max-time 20 https://127.0.0.1:8443/ 2>&1 | head -c 3000; tbx ceph mgr services; false; }
 endstep
 
 if [ "$pending" != skip ]; then
