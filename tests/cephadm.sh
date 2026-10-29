@@ -322,16 +322,16 @@ r1=$(reads); sleep 5; r2=$(reads)
 echo "reads of $bdev: $r1 -> $r2"
 [ "$r2" = "$r1" ]
 light off ident "$bdev"
-# the real path through the orchestrator, when the test host's devices have device ids (loop-backed OSDs usually do not)
+# the mgr's own dispatch (ssh to the host, rendered template), when a device the mgr knows has a location
 devid=$(tbx ceph device ls -f json | jq -r '[.[] | select((.location | length) > 0)][0].devid // empty')
 if [ -n "$devid" ]; then
-	echo "orch device light on $devid"
-	tbx ceph orch device light on "$devid"
-	sleep 20
-	tbx ceph orch ls container
-	tbx ceph orch device light off "$devid"
+	echo "ceph device light on $devid"
+	tbx ceph device light on "$devid" || echo "NOTE: device light on failed"
+	wait_for 60 "mgr-dispatched blinker" bash -c '[ "$(sudo podman ps -q --filter name=container-blink-dev- | wc -l)" -ge 1 ]' || echo "NOTE: no blinker from the mgr's dispatch"
+	tbx ceph device light off "$devid" --force || true
+	wait_for 120 "mgr-dispatched blinker gone" bash -c '[ "$(sudo podman ps -q --filter name=container-blink-dev- | wc -l)" = 0 ]'
 else
-	echo "NOTE: no device with a device id; the mgr's rendering and dispatch were not exercised"
+	echo "NOTE: no device with a location; the mgr's dispatch was not exercised"
 fi
 sudo losetup -d "$bdev"
 endstep
