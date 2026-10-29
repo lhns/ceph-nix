@@ -222,3 +222,4 @@
 /usr/*/thin_migrate  # thin-provisioning-tools build differs, ADR 0002
 /usr/*/update-smart-drivedb  # smartmontools script, nixpkgs ships the drive db statically, ADR 0002
 /usr/*/ld.*  # binutils (ld.bfd, ld.gold), ADR 0002
+/usr/*/*3.9*  # python 3.9 versioned names (ours is 3.12), ADR 0002
