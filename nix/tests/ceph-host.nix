@@ -253,8 +253,7 @@ pkgs.testers.runNixOSTest {
           for opt in ["--key_type aes", "--key-type aes", "--key-type=aes", "--key_type=aes"]:
               rc, out = node1.execute(
                   f"cephadm shell -- ceph auth get-or-create-key client.kern {caps} {opt} </dev/null", timeout=600)
-              print(f"[kernel_key] {opt}: rc={rc}
-{out}")
+              print(f"[kernel_key] {opt}: rc={rc}", out, sep=" ")
               if rc == 0:
                   key = out.strip().splitlines()[-1]
                   break
