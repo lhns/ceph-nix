@@ -161,7 +161,6 @@
 /usr/bin/bashbug*  # bash bug reporting, ADR 0002
 
 # Python 3.9 specific names of EL's python packages (ours is 3.12) and their EL-only entry points.
-/usr/*/*3.9*  # python 3.9 versioned names, ADR 0002
 /usr/*/*-3  # EL's versioned python entry points (jsonpatch-3, pyrsa-*-3), ADR 0002
 /usr/*/pyrsa-*  # python3-rsa scripts, a dependency of EL's google-auth, not used by Ceph, ADR 0002
 /usr/*/chardetect  # python3-chardet script, ADR 0002
@@ -222,3 +221,4 @@
 /usr/*/thin_metadata_unpack  # thin-provisioning-tools build differs, ADR 0002
 /usr/*/thin_migrate  # thin-provisioning-tools build differs, ADR 0002
 /usr/*/update-smart-drivedb  # smartmontools script, nixpkgs ships the drive db statically, ADR 0002
+/usr/*/ld.*  # binutils (ld.bfd, ld.gold), ADR 0002
