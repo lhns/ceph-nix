@@ -5,6 +5,8 @@
   lib,
   ceph,
   fetchurl,
+  grpc,
+  protobuf,
 }:
 
 (ceph.overrideScope (
@@ -24,10 +26,18 @@
   }
 )).ceph.overrideAttrs
   (old: {
+    # 21.x builds the NVMe-oF gateway monitor client unconditionally (20.x only on some distros);
+    # it runs protoc and grpc_cpp_plugin from these packages' CMake targets.
+    buildInputs = old.buildInputs ++ [
+      grpc
+      protobuf
+    ];
+
     cmakeFlags = old.cmakeFlags ++ [
-      # 21.x fetches Catch2 (unit tests only) with CPM at configure time; no network in the sandbox.
+      # 21.x clones Catch2 (unit tests only) with CPM at configure time; no network in the sandbox.
       (lib.cmakeBool "WITH_CATCH2" false)
-      # Fail fast instead of trying to download anything else at configure time.
+      # Never download at configure time: a dependency that would be fetched is skipped and then
+      # shows up as a configure or compile error instead of a network error.
       (lib.cmakeBool "FETCHCONTENT_FULLY_DISCONNECTED" true)
     ];
   })
