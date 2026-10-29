@@ -61,7 +61,8 @@ mds_active() { sudo podman exec toolbox ceph fs status cephfs -f json | jq -e '[
 daemon_running() { # daemon_running TYPE
 	[ "$(sudo podman exec toolbox ceph orch ps --daemon-type "$1" -f json | jq '[.[] | select(.status_desc == "running")] | length')" -ge 1 ]
 }
-exporter_up() { curl -sf http://127.0.0.1:9926/metrics | grep -q '^ceph_'; }
+# grep -q on a pipe can SIGPIPE the producer, which pipefail turns into a failure: capture first
+exporter_up() { local m; m=$(curl -sf http://127.0.0.1:9926/metrics) && grep -q '^ceph_' <<<"$m"; }
 
 step "host packages"
 export DEBIAN_FRONTEND=noninteractive
@@ -191,7 +192,8 @@ tbx radosgw-admin user create --uid=t --display-name=t --access-key=AKIATEST --s
 printf 'RGWDebugLog("lua-hook-ran " .. Request.HTTP.Method)\n' >"$work/hook.lua"
 sudo podman cp "$work/hook.lua" toolbox:/tmp/hook.lua
 tbx radosgw-admin script put --infile=/tmp/hook.lua --context=preRequest
-tbx radosgw-admin script get --context=preRequest | grep -q lua-hook-ran
+script=$(tbx radosgw-admin script get --context=preRequest)
+grep -q lua-hook-ran <<<"$script"
 tbx ceph config set client.rgw debug_rgw 20
 python3 - "$ip" <<'PY'
 import sys
@@ -205,8 +207,8 @@ assert s3.get_object(Bucket="testbucket", Key="k")["Body"].read() == b"hello rgw
 print("s3 ok")
 PY
 sleep 5
-rgw_ctr=$(sudo podman ps --format '{{.Names}}' | grep -- '-rgw-' | head -n1)
-sudo podman logs "$rgw_ctr" 2>&1 | grep -q lua-hook-ran
+rgw_log=$(sudo journalctl --no-pager -t radosgw)
+grep -q 'Lua INFO: lua-hook-ran' <<<"$rgw_log"
 endstep
 
 step "nfs: cluster, export, mount, I/O"
@@ -239,7 +241,8 @@ endstep
 
 if [ "$pending" != skip ]; then
 	step "dashboard serves the Angular UI on 8443"
-	curl -sk https://127.0.0.1:8443/ | grep -qi '<app-root'
+	ui=$(curl -sk https://127.0.0.1:8443/)
+	grep -qi '<app-root' <<<"$ui"
 	endstep
 
 	step "iscsi: gateway, target, iscsiadm login, I/O"
