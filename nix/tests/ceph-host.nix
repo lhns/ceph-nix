@@ -166,6 +166,9 @@ pkgs.testers.runNixOSTest {
           cores = [ "/dev/disk/by-id/virtio-CASCORE" ];
         };
       };
+      # The LV on the cas device keeps it open; open-cas-shutdown cannot stop the cache until the VG is
+      # deactivated, and an unclean cache comes back with its core inactive.
+      systemd.services.open-cas-shutdown.serviceConfig.ExecStartPre = "-${pkgs.lvm2.bin}/bin/vgchange -an --noudevsync vgcas";
       services.chrony.servers = [ "node1" ];
       services.chrony.extraConfig = "makestep 0.1 -1";
     };
@@ -305,7 +308,14 @@ pkgs.testers.runNixOSTest {
       def map_rbd(key):
           rc, _ = run(node1, f"echo '{ip1}:6789 name=kern,secret={key} rbd test' > /sys/bus/rbd/add")
           if rc != 0:
-              run(node1, "dmesg | grep -iE 'libceph|rbd|ceph:' | tail -40")
+              # no kernel message by default: turn on libceph/rbd debug output and look at it
+              run(node1, "mount -t debugfs none /sys/kernel/debug; uname -r; "
+                  "echo 'module libceph +p' > /sys/kernel/debug/dynamic_debug/control; "
+                  "echo 'module rbd +p' > /sys/kernel/debug/dynamic_debug/control; "
+                  "dmesg -C; "
+                  f"echo '{ip1}:6789 name=kern,secret={key} rbd test' > /sys/bus/rbd/add; "
+                  "dmesg | tail -60")
+              run(node1, "cephadm shell -- ceph auth get client.kern")
               raise Exception("rbd map failed")
           node1.succeed("udevadm settle; test -b /dev/rbd0")
 
@@ -405,26 +415,33 @@ pkgs.testers.runNixOSTest {
 
           kernel_ok = False
           with subtest("rbd and cephfs I/O from node1 through the kernel clients"):
+              key = kernel_key()
+              failures = []
               try:
-                  key = kernel_key()
                   map_rbd(key)
                   node1.succeed("dd if=/dev/urandom of=/var/tmp/rbd.ref bs=1M count=32")
                   node1.succeed("dd if=/var/tmp/rbd.ref of=/dev/rbd0 bs=1M oflag=direct conv=fsync")
                   node1.succeed("md5sum < /var/tmp/rbd.ref > /var/tmp/rbd.md5")
                   out = node1.succeed("head -c 33554432 /dev/rbd0 | md5sum")
                   assert out == node1.succeed("cat /var/tmp/rbd.md5"), out
+              except Exception as e:
+                  failures.append(f"rbd: {e}")
+              try:
                   mount_cephfs(key)
                   node1.succeed("dd if=/dev/urandom of=/mnt/cephfs/file bs=1M count=16 conv=fsync")
                   node1.succeed("md5sum < /mnt/cephfs/file > /var/tmp/cephfs.md5")
                   node1.succeed("echo 3 > /proc/sys/vm/drop_caches")
                   out = node1.succeed("md5sum < /mnt/cephfs/file")
                   assert out == node1.succeed("cat /var/tmp/cephfs.md5"), out
-                  kernel_ok = True
               except Exception as e:
+                  failures.append(f"cephfs: {e}")
+              if failures:
                   if not KERNEL_XFAIL:
-                      raise
-                  print(f"XFAIL: kernel rbd/cephfs clients: {e}")
+                      raise Exception(failures)
+                  print(f"XFAIL: kernel clients: {failures}")
                   unmount_clients()
+              else:
+                  kernel_ok = True
 
           with subtest("erasure-coded pool (k=2, m=1, failure domain osd)"):
               ceph("osd erasure-code-profile set ec21 k=2 m=1 crush-failure-domain=osd")
