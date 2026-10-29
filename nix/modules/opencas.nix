@@ -130,7 +130,9 @@ let
           ]
           ++ lib.optional withMode (lib.optionalString (c.cacheMode != null) c.cacheMode)
         );
-      header = "IO class id,IO class name,Eviction priority,Allocation" + lib.optionalString withMode ",Cache mode";
+      header =
+        "IO class id,IO class name,Eviction priority,Allocation"
+        + lib.optionalString withMode ",Cache mode";
     in
     lib.concatStringsSep "\n" ([ header ] ++ map row sorted) + "\n";
 
