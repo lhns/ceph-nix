@@ -247,7 +247,16 @@ wait_for 60 "exporter" exporter_up
 endstep
 
 step "dashboard serves the Angular UI on 8443"
-dashboard_ui() { local ui; ui=$(curl -sk --max-time 10 https://127.0.0.1:8443/) && grep -q '<title>Ceph</title>' <<<"$ui"; }
+dashboard_ui() {
+	local ui js
+	ui=$(curl -sk --max-time 10 https://127.0.0.1:8443/) || return 1
+	grep -q '<title>Ceph</title>' <<<"$ui" || return 1
+	# the Angular app: its root element and a main bundle, which must be served
+	js=$(grep -oE 'src="main[^"]*\.js"' <<<"$ui" | head -n1 | sed 's/^src="//; s/"$//')
+	grep -q '<cd-root' <<<"$ui" || return 1
+	[ -n "$js" ] || return 1
+	[ "$(curl -sk --max-time 20 -o /dev/null -w '%{http_code}' "https://127.0.0.1:8443/$js")" = 200 ]
+}
 wait_for 120 "dashboard UI" dashboard_ui || { curl -sik --max-time 20 https://127.0.0.1:8443/ 2>&1 | head -c 3000; tbx ceph mgr services; false; }
 endstep
 
