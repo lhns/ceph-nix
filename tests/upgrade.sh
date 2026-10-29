@@ -46,7 +46,8 @@ put_files() {
 	(cd "$1" && sudo md5sum big sub/small sub/text) >"$2"
 }
 check_files() { (cd "$1" && sudo md5sum -c "$2"); }
-mount_nfs() { timeout 30 sudo mount -t nfs -o nfsvers=4.1,proto=tcp,retry=0 "$ip:/cephfs" /mnt/nfs; }
+# soft and KILL: a mount against a dead server must not hang the job (D state)
+mount_nfs() { sudo timeout -s KILL 30 mount -t nfs -o nfsvers=4.1,proto=tcp,retry=0,soft,timeo=100,retrans=2 "$ip:/cephfs" /mnt/nfs; }
 # mounts and mapped devices, so the same checks run before and after
 rbd_mount() { rbd_dev=$(rbdh map rbd/test); sudo mkdir -p /mnt/rbd; sudo mount "$rbd_dev" /mnt/rbd; }
 rbd_umount() { sudo umount /mnt/rbd; rbdh unmap "$rbd_dev"; }
@@ -283,7 +284,15 @@ key=$(tbx ceph auth get-key client.admin)
 wait_for 180 "cephfs mount" mount_cephfs
 check_files /mnt/cephfs/fsdata "$work/cephfs.md5"
 sudo umount /mnt/cephfs
-wait_for 120 "nfs mount" mount_nfs
+wait_for 120 "nfs mount" mount_nfs || {
+	echo "nfs mount failed after the upgrade; ganesha state:"
+	tbx ceph nfs cluster info nfs1 || true
+	tbx ceph nfs export ls nfs1 --detailed || true
+	tbx ceph orch ps --daemon-type nfs || true
+	sudo ss -ltnp | grep -E ':2049' || echo "nothing listens on 2049"
+	sudo "$work/cephadm" logs --name "$(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].daemon_name')" 2>&1 | tail -80 || true
+	exit 1
+}
 check_files /mnt/nfs/nfsdata "$work/nfs.md5"
 sudo umount /mnt/nfs
 python3 "$work/s3.py" get "http://$ip:8080" "$work/s3.json"
