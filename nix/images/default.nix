@@ -22,8 +22,7 @@ in
     version = ceph.version;
     cephRef = "tentacle";
     # the cephadm orchestrator needs asyncssh; nixpkgs' mgr env lacks it
-    extraPython = with ceph.pythonEnv.python.pkgs;
-    [
+    extraPython = with ceph.pythonEnv.python.pkgs; [
       asyncssh
       python3-saml # dashboard SAML SSO; upstream's el9 image has it
     ];
