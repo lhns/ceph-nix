@@ -3,7 +3,8 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
-  outputs = { self, nixpkgs }:
+  outputs =
+    { self, nixpkgs }:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
@@ -16,11 +17,19 @@
       nixosModules = { };
 
       checks.${system} = {
-        formatting = pkgs.runCommand "formatting" { nativeBuildInputs = [ pkgs.nixfmt pkgs.findutils ]; } ''
-          cd ${self}
-          find . -name '*.nix' -exec nixfmt --check {} +
-          touch $out
-        '';
+        formatting =
+          pkgs.runCommand "formatting"
+            {
+              nativeBuildInputs = [
+                pkgs.nixfmt
+                pkgs.findutils
+              ];
+            }
+            ''
+              cd ${self}
+              find . -name '*.nix' -exec nixfmt --check {} +
+              touch $out
+            '';
       };
     };
 }
