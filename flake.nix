@@ -41,22 +41,18 @@
         test-ceph-host = import ./nix/tests/ceph-host.nix { inherit pkgs self nixos-cloudinit; };
       };
 
-      nixosModules.opencas =
-        { ... }:
-        {
-          imports = [ ./nix/modules/opencas.nix ];
-          nixpkgs.overlays = [ self.overlays.default ];
-        };
-
-      nixosModules.builder = import ./nix/modules/builder.nix;
-
-      nixosModules.ceph-host = import ./nix/modules/ceph-host.nix;
+      nixosModules = {
+        builder = import ./nix/modules/builder.nix;
+        ceph-host = import ./nix/modules/ceph-host.nix;
+        opencas =
+          { ... }:
+          {
+            imports = [ ./nix/modules/opencas.nix ];
+            nixpkgs.overlays = [ self.overlays.default ];
+          };
+      };
 
       checks.${system} = {
-        opencas = import ./nix/tests/opencas.nix { inherit pkgs self; };
-        # Supported kernels (5.10 to 7.0): the default one is also covered by the VM test.
-        open-cas-kmod-lts = ocKernels.linux_6_12.open-cas;
-        open-cas-kmod-latest = ocKernels.linux_6_18.open-cas;
         # Evaluates a system using the ceph-host module, without building it.
         ceph-host-eval =
           let
@@ -110,7 +106,10 @@
           pkgs.writeText "builder-eval" (
             builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath
           );
-
+        opencas = import ./nix/tests/opencas.nix { inherit pkgs self; };
+        # Supported kernels (5.10 to 7.0): the default one is also covered by the VM test.
+        open-cas-kmod-lts = ocKernels.linux_6_12.open-cas;
+        open-cas-kmod-latest = ocKernels.linux_6_18.open-cas;
         formatting =
           pkgs.runCommand "formatting"
             {

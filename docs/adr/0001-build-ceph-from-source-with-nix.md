@@ -12,7 +12,10 @@ dies on Ivy Bridge nodes. An EL9 rebuild is not viable: CentOS Stream 9 is EOL o
 
 ## Decision
 
-Build Ceph from source with Nix. One build serves the container image and the hosts. The sibling
+Build Ceph with Nix. One build serves the container image and the hosts. Two tracks: Tentacle uses nixpkgs'
+prebuilt 20.2.4, with what nixpkgs lacks (dashboard UI, iSCSI, libstoragemgmt) built as separate derivations and
+added to the image, so it needs no Ceph compile. It is the migration step from upstream's 20.2.4 image. Umbrella is
+compiled from source on our builder. The sibling
 [ceph-csi-x86-64-v2](https://github.com/lhns/ceph-csi-x86-64-v2) deliberately does not rebuild the Ceph image; see
 its [ADR 0003](https://github.com/lhns/ceph-csi-x86-64-v2/blob/main/docs/adr/0003-ceph-image-lives-in-ceph-nix.md).
 
