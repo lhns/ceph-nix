@@ -28,9 +28,9 @@ let
   cephadm = self.packages.x86_64-linux.cephadm-tentacle;
 
   imageVersion = if upstream then lib.removePrefix "v" imageInfo.tag else pkgs.ceph.version;
-  # Ceph 21 creates AES256KRB5 keys by default and the mons only allow that cipher, which the kernel client
-  # cannot use (see kernel_key). Older releases do not need the workaround.
-  aesWorkaround = lib.versionAtLeast imageVersion "21";
+  # Ceph 20 (Tentacle) and later create AES256KRB5 keys by default (seen on 20.2.4: the key starts with "Ag")
+  # and the mons only allow that cipher, which the kernel client cannot use (see kernel_key). Older releases do not need the workaround.
+  aesWorkaround = lib.versionAtLeast imageVersion "20";
 
   # load the image into the VM's podman, and the name:tag it carries
   loadImage =
@@ -287,7 +287,7 @@ pkgs.testers.runNixOSTest {
           return node1.succeed(f"{fsio} {op} </dev/null 2>/dev/null").strip()
 
 
-      # Kernel clients. On Ceph 21 (AES_WORKAROUND) the default AES256KRB5 keys are unusable for the kernel
+      # Kernel clients. On Ceph 20 and later (AES_WORKAROUND) the default AES256KRB5 keys are unusable for the kernel
       # client: this enables the legacy `aes` cipher cluster-wide, creates an aes key for the client and mutes the
       # mon's warning about it. Older releases get a plain key.
       def kernel_key():

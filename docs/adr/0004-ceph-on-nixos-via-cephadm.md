@@ -46,9 +46,9 @@ does not import `nixos-cloudinit`; consumers compose it with their base.
 - `/etc/environment` is host-wide: every unit that reads it gets that PATH.
 - Untested: `system.etc.overlay` and the systemd initrd (the module refuses the former).
 - The host's cephadm and the image's are the same build; keep `cephadmPackage` at the Ceph release of `image`.
-- Kernel rbd/cephfs clients (`clientKernelModules`) cannot use Ceph 21's default AES256KRB5 keys (EINVAL on
-  mount). They need the legacy cipher: `ceph mon set auth_allowed_ciphers aes,aes256k` and a client key created with
-  `--key_type aes`; the mons then warn (`AUTH_INSECURE_*`). The VM test does this for Ceph 21 and later only.
+- Kernel rbd/cephfs clients (`clientKernelModules`) cannot use the default AES256KRB5 keys of Ceph 20 (Tentacle) and later
+  (EINVAL on mount). They need the legacy cipher: `ceph mon set auth_allowed_ciphers aes,aes256k` and a client key created with
+  `--key_type aes`; the mons then warn (`AUTH_INSECURE_*`). The VM test does this for Ceph 20 and later (confirmed on Tentacle 20.2.4).
   Userspace clients are unaffected.
 - An LVM volume on an Open CAS device keeps the cache open at shutdown, so `open-cas-shutdown` cannot stop it and
   the cache comes back dirty with its core inactive. Deactivate the VG first (the test adds
