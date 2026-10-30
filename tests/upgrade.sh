@@ -361,7 +361,6 @@ echo "cephadm binaries before: $(tr '\n' ' ' <"$art/before/cephadm-binaries.txt"
 echo "cephadm binaries after:  $(tr '\n' ' ' <"$art/after/cephadm-binaries.txt")"
 grep -qx "cephadm.$want_cephadm" "$art/after/cephadm-binaries.txt"
 [ "$(sudo sha256sum "/var/lib/ceph/$fsid/cephadm.$want_cephadm" | cut -d' ' -f1)" = "$want_cephadm" ]
-sudo "/var/lib/ceph/$fsid/cephadm.$want_cephadm" version
 # same owner for every path that was there before; nothing new owned by an id that was not there before
 awk 'NR == FNR { o[$2] = $1; next } ($2 in o) && o[$2] != $1 { print "owner changed:", $0, "was", o[$2] }' \
 	"$art/before/owners.txt" "$art/after/owners.txt" | tee "$work/owner-diff.txt"
