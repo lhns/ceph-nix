@@ -19,6 +19,14 @@
       };
     };
 
+    # 21.x installs the Cython bindings with `python -m pip install --no-build-isolation --no-deps`
+    # (offline); 20.x used setup.py. The env is a callPackage of python-env.nix, so extend its withPackages.
+    ceph-python-env = prev.ceph-python-env.override {
+      ceph-python = final.ceph-python // {
+        withPackages = f: final.ceph-python.withPackages (ps: f ps ++ [ ps.pip ]);
+      };
+    };
+
     # 21.x's ceph.deployment.tls_utils (used by the service specs) imports cryptography.
     ceph-python-common = prev.ceph-python-common.overridePythonAttrs (old: {
       dependencies = old.dependencies ++ [ final.ceph-python.pkgs.cryptography ];
