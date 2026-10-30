@@ -1,15 +1,22 @@
 # Negative control for the v2-only claim (ADR 0006): on a guest CPU without AVX2, the upstream image cannot run
 # (glibc refuses x86-64-v3) and ours can. The VM test of the cephadm host runs ours on the same CPU.
-{ pkgs, self }:
+{
+  pkgs,
+  self,
+  # tentacle or umbrella (not run in CI: its Ceph is not built there)
+  track ? "tentacle",
+}:
 let
   inherit (pkgs) lib;
   common = import ./common.nix { inherit pkgs; };
   inherit (common) imageInfo;
-  ours = self.packages.x86_64-linux.ceph-image-tentacle;
-  oursRef = "localhost/ceph-nix:${pkgs.ceph.version}";
+  packages = self.packages.x86_64-linux;
+  cephPkg = if track == "umbrella" then packages.ceph-umbrella else pkgs.ceph;
+  ours = packages."ceph-image-${track}";
+  oursRef = "localhost/ceph-nix:${cephPkg.version}";
 in
 pkgs.testers.runNixOSTest {
-  name = "ceph-cpu";
+  name = "ceph-cpu${lib.optionalString (track != "tentacle") "-${track}"}";
   skipTypeCheck = true;
   nodes.machine = {
     virtualisation.podman.enable = true;
@@ -33,6 +40,6 @@ pkgs.testers.runNixOSTest {
     machine.succeed("set -o pipefail; ${ours} | podman load", timeout=3600)
     out = machine.succeed("podman run --rm ${oursRef} ceph --version </dev/null 2>&1", timeout=600)
     print(f"ours: {out}")
-    assert "ceph version ${pkgs.ceph.version}" in out, out
+    assert "ceph version ${cephPkg.version}" in out, out
   '';
 }

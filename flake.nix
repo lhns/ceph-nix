@@ -40,6 +40,15 @@
         # Slow VM test (about 30 minutes): run by .github/workflows/vm-tests.yml, not part of `checks`.
         test-ceph-host = import ./nix/tests/ceph-host.nix { inherit pkgs self nixos-cloudinit; };
         test-ceph-cpu = import ./nix/tests/ceph-cpu.nix { inherit pkgs self; };
+        # The same tests with the Umbrella image: run on the self-hosted builder, not by CI (ADR 0007).
+        test-ceph-host-umbrella = import ./nix/tests/ceph-host.nix {
+          inherit pkgs self nixos-cloudinit;
+          track = "umbrella";
+        };
+        test-ceph-cpu-umbrella = import ./nix/tests/ceph-cpu.nix {
+          inherit pkgs self;
+          track = "umbrella";
+        };
       };
 
       nixosModules = {

@@ -10,6 +10,8 @@
   # Run the pinned upstream release instead of our image. It needs AVX2, so the CPU is not masked, and the
   # cephadm of this repo (Ceph 20) is not the image's; best effort, not run in CI.
   upstream ? false,
+  # Which of the flake's Ceph tracks to run: tentacle or umbrella (not run in CI: its Ceph is not built there).
+  track ? "tentacle",
 }:
 
 let
@@ -18,10 +20,12 @@ let
   common = import ./common.nix { inherit pkgs; };
   inherit (common) imageInfo upstreamImage;
 
-  ours = self.packages.x86_64-linux.ceph-image-tentacle;
-  cephadm = self.packages.x86_64-linux.cephadm-tentacle;
+  packages = self.packages.x86_64-linux;
+  cephPkg = if track == "umbrella" then packages.ceph-umbrella else pkgs.ceph;
+  ours = packages."ceph-image-${track}";
+  cephadm = packages."cephadm-${track}";
 
-  imageVersion = if upstream then lib.removePrefix "v" imageInfo.tag else pkgs.ceph.version;
+  imageVersion = if upstream then lib.removePrefix "v" imageInfo.tag else cephPkg.version;
   # Ceph 20 (Tentacle) and later create AES256KRB5 keys by default (seen on 20.2.4: the key starts with "Ag")
   # and the mons only allow that cipher, which the kernel client cannot use (see kernel_key). Older releases do not need the workaround.
   aesWorkaround = lib.versionAtLeast imageVersion "20";
