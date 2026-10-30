@@ -90,20 +90,22 @@ pkgs.stdenv.mkDerivation (finalAttrs: {
   '';
 
   postFixup = ''
-    # the bundled nTIRPC and ganesha's own libraries live in $out/lib: every binary and module finds them there
-    for f in $out/bin/* $(find $out/lib -name '*.so*' -type f); do
-      patchelf --add-rpath $out/lib "$f" 2>/dev/null || true
+    # the bundled nTIRPC and ganesha's own libraries: every binary and module finds them
+    for f in $out/bin/* $(find $out/lib64 -name '*.so*' -type f); do
+      patchelf --add-rpath $out/lib64 "$f" 2>/dev/null || true
     done
   '';
 
   postInstall = ''
-    # the bundled nTIRPC installs to lib64; keep one library dir, and drop its .pc (broken paths, unused)
+    # Ganesha's own libraries and FSAL modules are installed (and found, by absolute path) under lib64; link them
+    # from lib too, where the image build looks
+    mkdir -p $out/lib
     if [ -d $out/lib64 ]; then
-      mkdir -p $out/lib
-      cp -a $out/lib64/. $out/lib/
-      rm -rf $out/lib64
+      for f in $out/lib64/*; do ln -sfn "$f" "$out/lib/$(basename "$f")"; done
     fi
-    rm -rf $out/lib/pkgconfig
+    rm -f $out/lib64/pkgconfig/libntirpc.pc
+    rmdir $out/lib64/pkgconfig 2>/dev/null || true
+    rm -f $out/lib/pkgconfig
     install -Dm755 ../tools/mount.9P $tools/bin/mount.9P
     # policy for the D-Bus statistics interface
     install -Dm644 $src/src/scripts/ganeshactl/org.ganesha.nfsd.conf $out/etc/dbus-1/system.d/org.ganesha.nfsd.conf
