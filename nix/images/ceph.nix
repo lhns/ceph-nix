@@ -4,7 +4,7 @@
 { pkgs }:
 {
   ceph, # the scope's `ceph` (outputs out, lib, dev, client, ...), with passthru.pythonEnv
-  ganesha ? null, # default: nfs-ganesha with the Ceph/RGW FSALs from this `ceph`
+  ganesha ? null, # default: nix/pkgs/nfs-ganesha.nix, the upstream-pinned release with the Ceph/RGW FSALs from this `ceph`
   cephadm, # derivation with bin/cephadm (nix/pkgs/cephadm.nix)
   smoke ? null, # derivation with libexec/ceph-nix/smoke (nix/pkgs/ceph-smoke.nix), for tests/cpu.sh
   extraPython ? [ ], # python packages the mgr needs beyond ceph.pythonEnv, from the same python
@@ -25,26 +25,7 @@ let
   sitePackages = python.sitePackages;
 
   ganeshaPkg =
-    if ganesha != null then
-      ganesha
-    else
-      (pkgs.nfs-ganesha.override {
-        useCeph = true;
-        inherit ceph;
-      }).overrideAttrs
-        (old: {
-          # Ganesha 9 (upstream's image has 5) aborts without CAP_SYS_RESOURCE (PR_SET_IO_FLUSHER), which
-          # cephadm's NFS containers don't get; make the option's default "tolerate failure".
-          postPatch = (old.postPatch or "") + ''
-            f=src/support/nfs_read_conf.c
-            sed -i 's/\("Allow_Set_Io_Flusher_Fail",[[:space:]]*\)false/\1true/' $f
-            grep -q 'Allow_Set_Io_Flusher_Fail", true' $f
-
-            # the default config path must be /etc/ganesha/ganesha.conf (Rook mounts it there), not the store's etc
-            sed -i 's|GANESHA_CONFIG_PATH "@SYSCONFDIR@/ganesha/ganesha.conf"|GANESHA_CONFIG_PATH "/etc/ganesha/ganesha.conf"|' src/include/config-h.in.cmake
-            grep -q 'GANESHA_CONFIG_PATH "/etc/ganesha/ganesha.conf"' src/include/config-h.in.cmake
-          '';
-        });
+    if ganesha != null then ganesha else import ../pkgs/nfs-ganesha.nix { inherit pkgs ceph; };
 
   # Earlier entries win name clashes in /usr/bin.
   userland =

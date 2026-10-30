@@ -123,7 +123,9 @@ pkgs.testers.runNixOSTest {
         machine.succeed("lvremove -y vgcas/lv && vgremove -y vgcas && pvremove -y /dev/cas1-1")
 
     with subtest("clean stop"):
-        machine.succeed("casctl stop")
+        # pvremove's close makes udev probe /dev/cas1-1; a stop during that probe fails with "device in use"
+        machine.succeed("udevadm settle")
+        machine.wait_until_succeeds("casctl stop", timeout=60)
         out = machine.succeed("casadm -L")
         print(out)
         machine.fail("casadm -L -o csv | grep -E '^cache,'")

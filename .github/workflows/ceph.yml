@@ -137,6 +137,28 @@ jobs:
           path: cephadm-logs
           retention-days: 7
 
+  # In-place migration: upstream cluster -> our image via `ceph orch upgrade` (FROM/TO are parameters of upgrade.sh).
+  upgrade:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: image
+      - name: upgrade.sh
+        timeout-minutes: 75
+        env:
+          ARTIFACT_DIR: ${{ github.workspace }}/upgrade-logs
+        run: tests/upgrade.sh "$UPSTREAM_IMAGE" image.tar.zst
+      - if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: upgrade-logs
+          path: upgrade-logs
+          retention-days: 7
+
   # Report-only (upstream's snyk jobs need a token).
   scan:
     needs: build
