@@ -44,8 +44,14 @@
     # CMake's FindProtobuf module defines some protobuf:: targets, then gRPC's config loads protobuf's
     # own config and fails on the half-defined export set; use protobuf's config throughout, as the
     # comment above this call in src/CMakeLists.txt intends.
+    # systemd/CMakeLists.txt prefers systemd's pkg-config unit dir (a read-only store path, now that
+    # systemd.pc is on the pkg-config path) over nixpkgs' -DSYSTEMD_SYSTEM_UNIT_DIR=$out/...; honour the -D.
     postPatch = (old.postPatch or "") + ''
-      substituteInPlace src/CMakeLists.txt         --replace-fail "find_package(Protobuf REQUIRED)" "find_package(Protobuf CONFIG REQUIRED)"
+      substituteInPlace src/CMakeLists.txt \
+        --replace-fail "find_package(Protobuf REQUIRED)" "find_package(Protobuf CONFIG REQUIRED)"
+      substituteInPlace systemd/CMakeLists.txt \
+        --replace-fail 'pkg_get_variable(SYSTEMD_SYSTEM_UNIT_DIR "systemd" "systemd_system_unit_dir")' \
+                       'set(SYSTEMD_SYSTEM_UNIT_DIR "''${SYSTEMD_SYSTEM_UNIT_DIR}")'
     '';
 
     cmakeFlags = old.cmakeFlags ++ [
