@@ -90,6 +90,51 @@ cephadm shell -- /usr/libexec/ceph-nix/device-light install
 The fallback needs a working `ceph` CLI inside `cephadm shell` on that host, i.e. an admin keyring there (hosts with the
 `_admin` label have one).
 
+## OpenCAS
+
+`nixosModules.opencas` (it adds the `open-cas` overlay: `pkgs.open-cas` and `boot.kernelPackages.open-cas`)
+provides [Open CAS](https://github.com/lhns/open-cas-linux) block caching: the kernel module, `casadm`/`casctl`, udev
+rules and units, and `/etc/opencas/opencas.conf` generated from `services.opencas.caches` (cache id -> `device`,
+`mode`, `cacheLineSize`, `extraFlags`, `ioClasses`, `cores`). LVM is taught about `/dev/cas*` devices and the raw
+devices are hidden from it, and a shutdown with active LVs on a cas device does not leave the cache dirty.
+`initializeBlankCaches` creates a cache once on a device without any signature (a marker in `/var/lib/opencas`
+prevents ever formatting it again); without it, create the cache once with `casctl init`. Devices must be
+`/dev/disk/by-id` or `by-path` links. The VM test is `nix build .#checks.x86_64-linux.opencas` (also part of `nix flake check`).
+
+```nix
+{
+  imports = [ ceph-nix.nixosModules.opencas ];
+  services.opencas = {
+    enable = true;
+    initializeBlankCaches = true;
+    caches."1" = {
+      device = "/dev/disk/by-id/nvme-EXAMPLE";
+      mode = "wb";
+      cores = [ "/dev/disk/by-id/wwn-0x123456789abcdef0" ]; # /dev/cas1-1
+    };
+  };
+}
+```
+
+## Releases
+
+Each Ceph release line is published as `ghcr.io/lhns/ceph-nix:v<ceph version>-<n>` (e.g. `v20.2.4-1`) and as a
+GitHub release with the same tag, whose notes give the manifest digest, the config digest, the `flake.lock` revisions
+of nixpkgs and open-cas-src and the companion versions. A tag is never moved; `<n>` goes up when the image changes
+(for example a new nixpkgs revision with a security fix). Pin by digest, as in `services.ceph-host.image`:
+
+```
+ghcr.io/lhns/ceph-nix@sha256:<manifest digest from the release notes>
+```
+
+[`release.yml`](.github/workflows/release.yml) runs after `ceph.yml` succeeded on `main` and releases that exact
+commit if the image differs from the newest `v<ver>-*` ([ADR 0003](docs/adr/0003-releases.md)). It compares the
+image config (layer content, env, cmd, labels; without the commit label), not the registry digest. Publishing is off
+until the repository variable `PUBLISH` is `true` (Settings, Secrets and variables, Actions, Variables). Without it
+the workflow is a dry run: it builds the image and prints "would publish v20.2.4-1, config digest ..., newest
+existing: none" to the run's step summary, and pushes nothing. [`bump.yml`](.github/workflows/bump.yml) opens a
+weekly `flake.lock` PR and an issue when upstream publishes a newer Ceph release in the tracked series.
+
 ## License
 
 The Nix expressions, scripts and docs here are Apache-2.0. Built artifacts contain Ceph (LGPL-2.1/3, parts GPL),

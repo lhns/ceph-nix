@@ -9,8 +9,8 @@ inputs yield an unchanged digest. Consumers pin digests and must not see tags mo
 
 ## Decision
 
-A release tag `v<ver>-<n>` is pushed only when the built digest differs from the newest `v<ver>-*` release. Tags
-are never overwritten. Each GitHub release records the image digest and the `flake.lock` revisions.
+A release tag `v<ver>-<n>` is pushed only when the built image differs from the newest `v<ver>-*` release. [Clarified when implemented: "differs" is decided by the image config digest (it holds the layer content hashes, not how a registry compresses them), computed without the `org.opencontainers.image.revision` label, which changes with every commit; the manifest digest is not compared.] Tags
+are never overwritten. Each GitHub release records the image digest (manifest and config) and the `flake.lock` revisions.
 
 ## Consequences
 

@@ -1,0 +1,201 @@
+name: release
+# Releases the image ceph.yml just tested (ADR 0003): ghcr.io/lhns/ceph-nix:v<ver>-<n>, only when the image differs
+# from the newest v<ver>-*. Publishing is off until the repo variable PUBLISH is 'true'; without it this is a dry run
+# that prints the plan to the step summary.
+on:
+  workflow_run:
+    workflows: [ceph]
+    types: [completed]
+  workflow_dispatch:
+# One release at a time; never cancel one in flight (a half-done release is worse than a queued one).
+concurrency:
+  group: release
+  cancel-in-progress: false
+permissions: {}
+defaults:
+  run:
+    shell: bash # with pipefail
+env:
+  REGISTRY_IMAGE: ghcr.io/lhns/ceph-nix
+  # The commit ceph.yml tested; for a dispatch, the dispatched ref's head.
+  SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  # Publishing needs the tested main commit: never from a branch dispatch or a fork's PR run.
+  CAN_PUBLISH: >-
+    ${{ vars.PUBLISH == 'true'
+    && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    || github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main') }}
+
+jobs:
+  plan:
+    # workflow_run fires for every ceph run: only a successful push to main is a release candidate
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read # the package is private until made public; anonymous reads would see "no tags"
+    strategy:
+      fail-fast: false
+      matrix:
+        # One entry per released track. The Ceph version comes from the image itself (its version label).
+        # The Umbrella track (`ceph-image`, v21.2.0-<n>) is added here and to publish's matrix when it reaches main.
+        include:
+          - package: ceph-image-tentacle
+            companions: tcmu-runner-tentacle ceph-iscsi-tentacle libstoragemgmt-tentacle
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            system-features = nixos-test benchmark big-parallel kvm
+      - name: nix build
+        run: nix build -L --no-link --print-out-paths ".#${{ matrix.package }}" | tee stream.path
+      - name: stream the image twice
+        # Same commit, same stream: the identity must not depend on the run.
+        run: |
+          "$(cat stream.path)" > image.tar
+          second=$("$(cat stream.path)" | sha256sum | cut -d' ' -f1)
+          first=$(sha256sum image.tar | cut -d' ' -f1)
+          echo "image.tar sha256: $first (second stream: $second)"
+          [ "$first" = "$second" ] || { echo "::error::streaming the same image twice gives different tars"; exit 1; }
+          cfg=$(tar -xOf image.tar manifest.json | jq -r '.[0].Config')
+          tar -xOf image.tar "$cfg" > config.json
+      - name: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE: ${{ matrix.package }}
+          COMPANIONS: ${{ matrix.companions }}
+        run: |
+          # Image identity: the config with the revision label removed, hashed. The config holds the layer
+          # diff_ids (uncompressed content), env, cmd and labels, so it does not depend on how a registry
+          # compresses layers; the manifest digest would. The revision label is the commit, which differs on
+          # every commit even when nothing in the image does, so it is excluded (ADR 0003).
+          ident() { jq -S -c 'del(.config.Labels["org.opencontainers.image.revision"]) | del(.container_config)' | sha256sum | cut -d' ' -f1; }
+
+          ver=$(jq -r '.config.Labels["org.opencontainers.image.version"]' config.json)
+          [[ $ver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::cannot read the Ceph version from the image ('$ver')"; exit 1; }
+          config_digest=sha256:$(sha256sum config.json | cut -d' ' -f1)
+          ident_new=$(ident < config.json)
+
+          echo "$GH_TOKEN" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
+          if tags=$(skopeo list-tags "docker://$REGISTRY_IMAGE" 2> err.log); then
+            tags=$(jq -r '.Tags[]' <<<"$tags")
+          elif grep -qiE 'name unknown|not found|404' err.log; then
+            tags=
+          else
+            cat err.log; echo "::error::cannot list tags of $REGISTRY_IMAGE"; exit 1
+          fi
+          last=$(grep -E "^v${ver//./\\.}-[0-9]+\$" <<<"$tags" | sed 's/.*-//' | sort -n | tail -n1 || true)
+          if [ -z "$last" ]; then
+            newest=none; changed=true; n=1
+          else
+            newest="v$ver-$last"
+            ident_old=$(skopeo inspect --config "docker://$REGISTRY_IMAGE:$newest" | ident)
+            if [ "$ident_old" = "$ident_new" ]; then changed=false; else changed=true; fi
+            n=$((last + 1))
+          fi
+          tag="v$ver-$n"
+
+          companions=
+          for p in $COMPANIONS; do
+            companions+="- $p $(nix eval --raw ".#$p.version" 2>/dev/null || echo unknown)"$'\n'
+          done
+          lock() { jq -r --arg k "$1" '.nodes[$k].locked.rev' flake.lock; }
+          {
+            echo "package=$PACKAGE"; echo "ver=$ver"; echo "tag=$tag"; echo "changed=$changed"; echo "newest=$newest"
+            echo "config_digest=$config_digest"; echo "identity=$ident_new"
+            echo "nixpkgs=$(lock nixpkgs)"; echo "open_cas_src=$(lock open-cas-src)"
+          } | tee plan.env
+          printf '%s' "$companions" > companions.txt
+          {
+            echo "### $PACKAGE"
+            if [ "$changed" = true ]; then
+              verb="would publish"; [ "$CAN_PUBLISH" = true ] && verb="publishing"
+              echo "$verb \`$tag\`, config digest \`$config_digest\`, identity \`$ident_new\`, newest existing: \`$newest\`"
+            else
+              echo "nothing to publish: identical to \`$newest\` (identity \`$ident_new\`, config digest \`$config_digest\`)"
+            fi
+            echo
+            echo "Commit \`$SOURCE_SHA\`; publishing enabled: \`$CAN_PUBLISH\` (variable PUBLISH, tested main commit only)."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: compress the image
+        if: env.CAN_PUBLISH == 'true'
+        run: |
+          set -a; . ./plan.env; set +a
+          if [ "$changed" = true ]; then zstd -T0 -3 -o image.tar.zst image.tar; fi
+      - uses: actions/upload-artifact@v7
+        if: env.CAN_PUBLISH == 'true'
+        with:
+          name: release-${{ matrix.package }}
+          path: |
+            plan.env
+            companions.txt
+            image.tar.zst
+          retention-days: 1
+          compression-level: 0
+
+  publish:
+    needs: plan
+    if: needs.plan.result == 'success' && vars.PUBLISH == 'true' && (github.event_name == 'workflow_run' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # the git tag and the release
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [ceph-image-tentacle] # keep in step with plan's matrix
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-${{ matrix.package }}
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -a; . ./plan.env; set +a
+          if [ "$changed" != true ]; then echo "$package: unchanged, nothing to publish"; exit 0; fi
+          echo "$GH_TOKEN" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
+          # never overwrite: neither the image tag nor the git tag may exist
+          if skopeo inspect --raw "docker://$REGISTRY_IMAGE:$tag" >/dev/null 2>&1; then
+            echo "::error::$REGISTRY_IMAGE:$tag already exists"; exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::git tag $tag already exists"; exit 1
+          fi
+          zstd -dc image.tar.zst > image.tar
+          skopeo copy --format v2s2 --digestfile digest.txt "docker-archive:image.tar" "docker://$REGISTRY_IMAGE:$tag"
+          manifest=$(cat digest.txt)
+          pushed=$(skopeo inspect --raw "docker://$REGISTRY_IMAGE@$manifest" | jq -r '.config.digest')
+          [ "$pushed" = "$config_digest" ] || { echo "::error::pushed config $pushed differs from built $config_digest"; exit 1; }
+          {
+            echo "Ceph $ver, track \`$package\`, built from $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$SOURCE_SHA"
+            echo
+            echo "Pin by digest:"
+            echo
+            echo '```'
+            echo "$REGISTRY_IMAGE@$manifest"
+            echo '```'
+            echo
+            echo "- config digest (image ID): \`$config_digest\`"
+            echo "- image identity (config without the revision label; decides a new release): \`$identity\`"
+            echo "- nixpkgs: \`$nixpkgs\`"
+            echo "- open-cas-src: \`$open_cas_src\`"
+            echo "- previous release of this Ceph version: $newest"
+            echo
+            echo "Companion versions (flake packages):"
+            echo
+            cat companions.txt
+          } > notes.md
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --title "$tag" --notes-file notes.md
+          {
+            echo "### Published $tag"
+            echo "\`$REGISTRY_IMAGE@$manifest\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
