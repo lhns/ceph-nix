@@ -3,23 +3,21 @@
 name: vm-tests
 on:
   workflow_dispatch:
+  # Skip pushes that cannot change what these VMs run. No concurrency cancelling: a superseded run is cancelled by
+  # hand, never automatically.
   push:
     branches: [main]
+    paths-ignore: &skip
+      - docs/**
+      - "**.md"
+      - LICENSE
+      - tests/*.sh  # not tests/smoke.c: nix/pkgs/ceph-smoke.nix builds it
+      - tests/*.txt
+      - .github/dependabot.yml
+      - .github/workflows/ceph.yml
+      - .github/workflows/nix.yml
   pull_request:
-    paths:
-      - nix/modules/**
-      - nix/tests/**
-      - nix/pkgs/cephadm.nix
-      - nix/pkgs/bundle-cephadm.py
-      - nix/images/**
-      - nix/pkgs/patch-cephadm.py
-      - nix/ceph-image.json
-      - flake.nix
-      - flake.lock
-      - .github/workflows/vm-tests.yml
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    paths-ignore: *skip
 
 jobs:
   vm-test:
