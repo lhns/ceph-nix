@@ -7,7 +7,6 @@ disk="${1:-${BLINK_DEV:-}}"
 [ -n "$disk" ] || { echo "usage: blink-disk DEVICE" >&2; exit 2; }
 trap 'exit 0' TERM INT
 while true ; do
-    #blockdev --flushbufs "$disk"
     err="$(timeout 1s dd "if=$disk" of=/dev/null bs=512 count=409600 conv=noerror iflag=direct 2>&1)"
     status=$?
     if [ $status != 0 ] && [ $status != 124 ]; then

@@ -10,12 +10,6 @@
   # Run the pinned upstream release instead of our image. It needs AVX2, so the CPU is not masked, and the
   # cephadm of this repo (Ceph 20) is not the image's; best effort, not run in CI.
   upstream ? false,
-  # The upstream image's lvm.conf lacks `devices/types = ["cas", 16]`. With upstream v21.2.0 the OSD on
-  # the cas-backed LV works anyway (ceph-volume runs the host's LVM through nsenter), but if an image
-  # ever needs it, true reports a failing subtest as XFAIL instead of failing the test.
-  casOsdXfail ? false,
-  # If the kernel rbd/cephfs clients still cannot talk to the cluster, report the subtest as XFAIL.
-  kernelClientsXfail ? false,
 }:
 
 let
@@ -176,9 +170,7 @@ pkgs.testers.runNixOSTest {
       ip1 = "${nodes.node1.networking.primaryIPAddress}"
       ip2 = "${nodes.node2.networking.primaryIPAddress}"
       hosts = [node1, node2]
-      CAS_OSD_XFAIL = ${if casOsdXfail then "True" else "False"}
       AES_WORKAROUND = ${if aesWorkaround then "True" else "False"}
-      KERNEL_XFAIL = ${if kernelClientsXfail then "True" else "False"}
 
 
       def run(m, cmd, timeout=900):
@@ -313,13 +305,7 @@ pkgs.testers.runNixOSTest {
       def map_rbd(key):
           rc, _ = run(node1, f"echo '{ip1}:6789 name=kern,secret={key} rbd test' > /sys/bus/rbd/add_single_major")
           if rc != 0:
-              # no kernel message by default: turn on libceph/rbd debug output and look at it
-              run(node1, "mount -t debugfs none /sys/kernel/debug; uname -r; "
-                  "echo 'module libceph +p' > /sys/kernel/debug/dynamic_debug/control; "
-                  "echo 'module rbd +p' > /sys/kernel/debug/dynamic_debug/control; "
-                  "dmesg -C; "
-                  f"echo '{ip1}:6789 name=kern,secret={key} rbd test' > /sys/bus/rbd/add_single_major; "
-                  "dmesg | tail -60")
+              run(node1, "dmesg | grep -iE 'libceph|rbd' | tail -40")
               run(node1, "cephadm shell -- ceph auth get client.kern")
               raise Exception("rbd map failed")
           node1.succeed("udevadm settle; test -b /dev/rbd0")
@@ -427,74 +413,44 @@ pkgs.testers.runNixOSTest {
               fs_md5 = cephfs_user("write")
               assert cephfs_user("read") == fs_md5
 
-          kernel_ok = False
           with subtest("rbd and cephfs I/O from node1 through the kernel clients"):
               key = kernel_key()
-              failures = []
-              try:
-                  map_rbd(key)
-                  node1.succeed("dd if=/dev/urandom of=/var/tmp/rbd.ref bs=1M count=32")
-                  node1.succeed("dd if=/var/tmp/rbd.ref of=/dev/rbd0 bs=1M oflag=direct conv=fsync")
-                  node1.succeed("md5sum < /var/tmp/rbd.ref > /var/tmp/rbd.md5")
-                  out = node1.succeed("head -c 33554432 /dev/rbd0 | md5sum")
-                  assert out == node1.succeed("cat /var/tmp/rbd.md5"), out
-              except Exception as e:
-                  failures.append(f"rbd: {e}")
-              try:
-                  mount_cephfs(key)
-                  node1.succeed("dd if=/dev/urandom of=/mnt/cephfs/file bs=1M count=16 conv=fsync")
-                  node1.succeed("md5sum < /mnt/cephfs/file > /var/tmp/cephfs.md5")
-                  node1.succeed("echo 3 > /proc/sys/vm/drop_caches")
-                  out = node1.succeed("md5sum < /mnt/cephfs/file")
-                  assert out == node1.succeed("cat /var/tmp/cephfs.md5"), out
-              except Exception as e:
-                  failures.append(f"cephfs: {e}")
-              if failures:
-                  if not KERNEL_XFAIL:
-                      raise Exception(failures)
-                  print(f"XFAIL: kernel clients: {failures}")
-                  unmount_clients()
-              else:
-                  kernel_ok = True
+              map_rbd(key)
+              node1.succeed("dd if=/dev/urandom of=/var/tmp/rbd.ref bs=1M count=32")
+              node1.succeed("dd if=/var/tmp/rbd.ref of=/dev/rbd0 bs=1M oflag=direct conv=fsync")
+              node1.succeed("md5sum < /var/tmp/rbd.ref > /var/tmp/rbd.md5")
+              out = node1.succeed("head -c 33554432 /dev/rbd0 | md5sum")
+              assert out == node1.succeed("cat /var/tmp/rbd.md5"), out
+              mount_cephfs(key)
+              node1.succeed("dd if=/dev/urandom of=/mnt/cephfs/file bs=1M count=16 conv=fsync")
+              node1.succeed("md5sum < /mnt/cephfs/file > /var/tmp/cephfs.md5")
+              node1.succeed("echo 3 > /proc/sys/vm/drop_caches")
+              out = node1.succeed("md5sum < /mnt/cephfs/file")
+              assert out == node1.succeed("cat /var/tmp/cephfs.md5"), out
 
           with subtest("erasure-coded pool (k=2, m=1, failure domain osd)"):
               ceph("osd erasure-code-profile set ec21 k=2 m=1 crush-failure-domain=osd")
               ceph("osd pool create ecpool 16 16 erasure ec21")
               ceph("osd pool application enable ecpool rgw")
               ok(node1, "cephadm shell -- rados -p ecpool put obj /etc/ceph/ceph.conf")
-              expect = quiet("md5sum /etc/ceph/ceph.conf").split()[0]
+              ec_expect = quiet("md5sum /etc/ceph/ceph.conf").split()[0]
               got = ec_md5().split()[0]
-              assert got == expect, (got, expect)
-              ec_expect = expect
+              assert got == ec_expect, (got, ec_expect)
 
-          cas_osd = False
           with subtest("OSD on an LV on an Open CAS device"):
               node2.succeed("casadm -L -o csv | grep -E '^core,1,.*Active'")
               node2.succeed("pvcreate /dev/cas1-1 && vgcreate vgcas /dev/cas1-1 && lvcreate -l 100%FREE -n osd vgcas")
               try:
                   run(node1, "cephadm shell -- ceph orch daemon add osd node2:/dev/vgcas/osd", 900)
-                  cas_osd = wait_healthy(6, timeout=420, fatal=False)
-                  assert cas_osd, "OSD on the cas-backed LV did not come up"
-              except Exception as e:
+                  assert wait_healthy(6, timeout=420, fatal=False), "OSD on the cas-backed LV did not come up"
+              except Exception:
                   run(node1, "cephadm shell -- ceph log last 50 cephadm")
-                  if not CAS_OSD_XFAIL:
-                      raise
-                  print(f"XFAIL: OSD on a cas-backed LV: {e}. Expected until the image's lvm.conf has "
-                        "devices/types = [\"cas\", 16]; ceph-volume inside the upstream image does not accept the device.")
-                  # drop the OSD id ceph-volume may have created before failing
-                  tree = json.loads(quiet("ceph osd tree -f json").splitlines()[-1])
-                  for n in tree["nodes"]:
-                      if n["type"] == "osd" and n.get("status") != "up":
-                          ceph(f"osd purge {n['id']} --yes-i-really-mean-it")
-                  wait_healthy(5, timeout=900)
-              else:
-                  print("OSD on a cas-backed LV works" + (" (XPASS)" if CAS_OSD_XFAIL else ""))
-              total_osds = 6 if cas_osd else 5
+                  raise
 
           with subtest("switch-to-configuration restarts no daemon"):
               for m in [node2, node1]:
                   switch(m)
-              wait_healthy(total_osds)
+              wait_healthy(6)
 
           with subtest("reboot both nodes"):
               unmount_clients()
@@ -504,9 +460,8 @@ pkgs.testers.runNixOSTest {
               node2.start()
               for m in hosts:
                   m.wait_for_unit("multi-user.target")
-              if cas_osd:
-                  node2.succeed("casadm -L -o csv | grep -E '^core,1,.*Active'")
-              wait_healthy(total_osds)
+              node2.succeed("casadm -L -o csv | grep -E '^core,1,.*Active'")
+              wait_healthy(6)
               for m in hosts:
                   run(m, "systemctl list-units --failed --no-pager")
 
@@ -514,20 +469,19 @@ pkgs.testers.runNixOSTest {
               assert rbd_user_read() == rbd_md5
               assert cephfs_user("read") == fs_md5
               assert ec_md5().split()[0] == ec_expect
-              if kernel_ok:
-                  key = quiet("ceph auth get-key client.kern")
-                  map_rbd(key)
-                  out = node1.succeed("head -c 33554432 /dev/rbd0 | md5sum")
-                  assert out == node1.succeed("cat /var/tmp/rbd.md5"), out
-                  mount_cephfs(key)
-                  out = node1.succeed("md5sum < /mnt/cephfs/file")
-                  assert out == node1.succeed("cat /var/tmp/cephfs.md5"), out
-                  unmount_clients()
+              key = quiet("ceph auth get-key client.kern")
+              map_rbd(key)
+              out = node1.succeed("head -c 33554432 /dev/rbd0 | md5sum")
+              assert out == node1.succeed("cat /var/tmp/rbd.md5"), out
+              mount_cephfs(key)
+              out = node1.succeed("md5sum < /mnt/cephfs/file")
+              assert out == node1.succeed("cat /var/tmp/cephfs.md5"), out
+              unmount_clients()
 
           with subtest("switch-to-configuration after the reboot"):
               for m in [node2, node1]:
                   switch(m)
-              wait_healthy(total_osds)
+              wait_healthy(6)
       except Exception:
           diagnostics()
           raise

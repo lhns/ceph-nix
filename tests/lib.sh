@@ -8,7 +8,8 @@ endstep() { echo "::endgroup::"; }
 tbx() { sudo podman exec toolbox "$@"; }
 # krbd needs the host's /dev and /sys and udev's events; our rbd from a privileged container does that.
 rbdh() {
-	sudo podman run --rm --privileged --net=host --pid=host -v /dev:/dev -v /sys:/sys -v /run/udev:/run/udev:ro 		-v /etc/ceph:/etc/ceph --entrypoint rbd "$tool_image" "$@"
+	sudo podman run --rm --privileged --net=host --pid=host -v /dev:/dev -v /sys:/sys -v /run/udev:/run/udev:ro \
+		-v /etc/ceph:/etc/ceph --entrypoint rbd "$tool_image" "$@"
 }
 
 wait_for() { # wait_for SECONDS DESCRIPTION CMD...
@@ -28,15 +29,15 @@ daemon_running() { # daemon_running TYPE
 	[ "$(sudo podman exec toolbox ceph orch ps --daemon-type "$1" -f json | jq '[.[] | select(.status_desc == "running")] | length')" -ge 1 ]
 }
 
-
-host_setup() {
+host_setup() { # host_setup [EXTRA_PACKAGES [EXTRA_MODULES]]
+	local m
 	export DEBIAN_FRONTEND=noninteractive
 	sudo apt-get update -qq
 	sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
-	sudo apt-get install -y -qq podman lvm2 chrony openssh-server ceph-common nfs-common python3-boto3 zstd jq xfsprogs e2fsprogs curl >/dev/null
+	sudo apt-get install -y -qq podman lvm2 chrony openssh-server ceph-common nfs-common python3-boto3 zstd jq xfsprogs e2fsprogs curl ${1:-} >/dev/null
 	sudo systemctl enable --now chrony ssh
-	for m in rbd ceph nfs; do
-	sudo modprobe "$m" 2>/dev/null || { sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" >/dev/null && sudo modprobe "$m"; }
+	for m in rbd ceph nfs ${2:-}; do
+		sudo modprobe "$m" 2>/dev/null || { sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" >/dev/null && sudo modprobe "$m"; }
 	done
 }
 
@@ -50,19 +51,21 @@ registry_setup() {
 }
 
 loop_osds() {
+	local i dev
 	for i in 1 2 3; do
-	sudo truncate -s 12G "/mnt/osd$i.img"
-	dev=$(sudo losetup -f --show "/mnt/osd$i.img")
-	sudo pvcreate "$dev" >/dev/null
-	sudo vgcreate "vg$i" "$dev" >/dev/null
-	sudo lvcreate -l 100%FREE -n lv "vg$i" >/dev/null
-	tbx ceph orch daemon add osd "$(hostname):/dev/vg$i/lv"
+		sudo truncate -s 12G "/mnt/osd$i.img"
+		dev=$(sudo losetup -f --show "/mnt/osd$i.img")
+		sudo pvcreate "$dev" >/dev/null
+		sudo vgcreate "vg$i" "$dev" >/dev/null
+		sudo lvcreate -l 100%FREE -n lv "vg$i" >/dev/null
+		tbx ceph orch daemon add osd "$(hostname):/dev/vg$i/lv"
 	done
 }
 
 # Needs ip, key (client.admin) and /mnt/cephfs made rshared by the caller.
 mount_cephfs() {
-	sudo podman run --rm --privileged --net=host -v /etc/ceph:/etc/ceph -v /mnt/cephfs:/mnt/cephfs:rshared --entrypoint mount 		"$tool_image" -t ceph "$ip:6789:/" /mnt/cephfs -o "name=admin,secret=$key,mds_namespace=cephfs"
+	sudo podman run --rm --privileged --net=host -v /etc/ceph:/etc/ceph -v /mnt/cephfs:/mnt/cephfs:rshared --entrypoint mount \
+		"$tool_image" -t ceph "$ip:6789:/" /mnt/cephfs -o "name=admin,secret=$key,mds_namespace=cephfs"
 }
 
 # Needs art and work.
@@ -76,7 +79,7 @@ collect() {
 		done
 	fi
 	for c in "ceph -s" "ceph health detail" "ceph orch ps" "ceph orch ls" "ceph mgr module ls" "ceph osd tree" "ceph crash ls" \
-		"ceph fs status" "ceph osd pool ls detail"; do
+		"ceph fs status" "ceph osd pool ls detail" "ceph orch ls container"; do
 		# shellcheck disable=SC2086
 		tbx $c >"$art/$(tr ' ' _ <<<"$c").txt" 2>&1
 	done

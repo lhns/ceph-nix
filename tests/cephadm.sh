@@ -11,109 +11,46 @@ art=${ARTIFACT_DIR:-$PWD/cephadm-logs}
 work=$(sudo mktemp -d /mnt/cephadm-test.XXXX)
 sudo chown "$USER" "$work"
 mkdir -p "$art"
-local_image=localhost:5000/ceph:test
-step() { echo "::group::$*"; echo ">>> $*"; }
-endstep() { echo "::endgroup::"; }
-
-# Commands in a long-lived container from the image under test (host network, admin keyring).
-tbx() { sudo podman exec toolbox "$@"; }
-# krbd needs the host's /dev and /sys and udev's events; our rbd from a privileged container does that.
-rbdh() {
-	sudo podman run --rm --privileged --net=host --pid=host -v /dev:/dev -v /sys:/sys -v /run/udev:/run/udev:ro 		-v /etc/ceph:/etc/ceph --entrypoint rbd "$local_image" "$@"
-}
-
-collect() {
-	set +e
-	echo "::group::collecting logs into $art"
-	sudo podman ps -a >"$art/podman-ps.txt" 2>&1
-	if [ -x "$work/cephadm" ]; then
-		for n in $(sudo "$work/cephadm" ls 2>/dev/null | jq -r '.[].name' 2>/dev/null); do
-			sudo "$work/cephadm" logs --name "$n" >"$art/daemon-$n.log" 2>&1
-		done
-	fi
-	for c in "ceph -s" "ceph health detail" "ceph orch ps" "ceph orch ls" "ceph mgr module ls" "ceph osd tree" "ceph crash ls" \
-		"ceph fs status" "ceph osd pool ls detail" "ceph orch ls container"; do
-		# shellcheck disable=SC2086
-		tbx $c >"$art/$(tr ' ' _ <<<"$c").txt" 2>&1
-	done
-	sudo journalctl --no-pager -u 'ceph*' >"$art/journal-ceph.txt" 2>&1
-	sudo journalctl --no-pager -k | grep -iE 'rbd|ceph|libceph|nfs' >"$art/dmesg.txt" 2>&1
-	sudo cp /var/log/ceph/cephadm.log "$art/" 2>/dev/null
-	sudo chmod -R a+r "$art"
-	echo "::endgroup::"
-}
+tool_image=localhost:5000/ceph:test
+# shellcheck source=lib.sh
+. "$here/lib.sh"
 trap 'rc=$?; [ $rc -eq 0 ] || collect; exit $rc' EXIT
 
-wait_for() { # wait_for SECONDS DESCRIPTION CMD...
-	local t=$1 d=$2 i
-	shift 2
-	for ((i = 0; i < t; i += 5)); do
-		if "$@" >/dev/null 2>&1; then return 0; fi
-		sleep 5
-	done
-	echo "timeout waiting for: $d"
-	return 1
-}
-osds_up() { [ "$(sudo podman exec toolbox ceph osd stat -f json | jq .num_up_osds)" = 3 ]; }
-health_ok() { [ "$(sudo podman exec toolbox ceph health)" = HEALTH_OK ]; }
-mds_active() { sudo podman exec toolbox ceph fs status cephfs -f json | jq -e '[.mdsmap[] | select(.state == "active")] | length >= 1'; }
-daemon_running() { # daemon_running TYPE
-	[ "$(sudo podman exec toolbox ceph orch ps --daemon-type "$1" -f json | jq '[.[] | select(.status_desc == "running")] | length')" -ge 1 ]
-}
 # grep -q on a pipe can SIGPIPE the producer, which pipefail turns into a failure: capture first
 exporter_up() { local m; m=$(curl -sf http://127.0.0.1:9926/metrics) && grep -q '^ceph_' <<<"$m"; }
 
 step "host packages"
-export DEBIAN_FRONTEND=noninteractive
-sudo apt-get update -qq
-sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
-sudo apt-get install -y -qq podman lvm2 chrony openssh-server ceph-common nfs-common python3-boto3 zstd jq xfsprogs e2fsprogs curl open-iscsi >/dev/null
-sudo systemctl enable --now chrony ssh
-for m in rbd ceph nfs target_core_user iscsi_target_mod iscsi_tcp; do
-	sudo modprobe "$m" 2>/dev/null || { sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" >/dev/null && sudo modprobe "$m"; }
-done
+host_setup open-iscsi "target_core_user iscsi_target_mod iscsi_tcp"
 endstep
 
 step "registry and image"
-# the runner's / is small; put the container storage on the big temporary disk
-sudo mkdir -p /mnt/containers
-printf '[storage]\ndriver = "overlay"\nrunroot = "/run/containers/storage"\ngraphroot = "/mnt/containers"\n' | sudo tee /etc/containers/storage.conf >/dev/null
-grep graphroot /etc/containers/storage.conf
-printf '[[registry]]\nlocation = "localhost:5000"\ninsecure = true\n' | sudo tee /etc/containers/registries.conf.d/99-local.conf >/dev/null
-sudo podman run -d --name registry -p 5000:5000 docker.io/library/registry:2 >/dev/null
+registry_setup
 loaded=$(zstd -dcf "$tarball" | sudo podman load | sed -n 's/^Loaded image: //p' | head -n1)
 echo "loaded $loaded"
-sudo podman tag "$loaded" "$local_image"
-sudo podman push --tls-verify=false "$local_image"
+sudo podman tag "$loaded" "$tool_image"
+sudo podman push --tls-verify=false "$tool_image"
 # the cephadm shipped in the image, as the orchestrator would use it
-sudo podman run --rm --entrypoint cat "$local_image" /usr/sbin/cephadm >"$work/cephadm"
+sudo podman run --rm --entrypoint cat "$tool_image" /usr/sbin/cephadm >"$work/cephadm"
 chmod +x "$work/cephadm"
 sudo "$work/cephadm" version
 endstep
 
 step "device-light: decision logic with a fake lsmcli"
-ENGINE="sudo podman" "$here/device-light.sh" "$local_image"
+ENGINE="sudo podman" "$here/device-light.sh" "$tool_image"
 endstep
 
 step "bootstrap"
 ip=$(hostname -I | awk '{print $1}')
-sudo "$work/cephadm" --image "$local_image" bootstrap --mon-ip "$ip" --single-host-defaults --skip-monitoring-stack \
+sudo "$work/cephadm" --image "$tool_image" bootstrap --mon-ip "$ip" --single-host-defaults --skip-monitoring-stack \
 	--initial-dashboard-user admin --initial-dashboard-password 'Admin-pass-1' --dashboard-password-noupdate \
 	--skip-pull --allow-fqdn-hostname --no-cleanup-on-failure
-sudo podman run -d --name toolbox --net=host --privileged -v /etc/ceph:/etc/ceph --entrypoint sleep "$local_image" infinity >/dev/null
+sudo podman run -d --name toolbox --net=host --privileged -v /etc/ceph:/etc/ceph --entrypoint sleep "$tool_image" infinity >/dev/null
 tbx ceph -s
 tbx ceph versions
 endstep
 
 step "OSDs on three loop-backed LVs"
-for i in 1 2 3; do
-	sudo truncate -s 12G "/mnt/osd$i.img"
-	dev=$(sudo losetup -f --show "/mnt/osd$i.img")
-	sudo pvcreate "$dev" >/dev/null
-	sudo vgcreate "vg$i" "$dev" >/dev/null
-	sudo lvcreate -l 100%FREE -n lv "vg$i" >/dev/null
-	tbx ceph orch daemon add osd "$(hostname):/dev/vg$i/lv"
-done
+loop_osds
 wait_for 300 "3 OSDs up" osds_up
 wait_for 600 "HEALTH_OK" health_ok || { tbx ceph health detail; exit 1; }
 tbx ceph -s
@@ -182,9 +119,6 @@ sudo mkdir -p /mnt/cephfs
 key=$(tbx ceph auth get-key client.admin)
 sudo mount --bind /mnt/cephfs /mnt/cephfs
 sudo mount --make-shared /mnt/cephfs
-mount_cephfs() {
-	sudo podman run --rm --privileged --net=host -v /etc/ceph:/etc/ceph -v /mnt/cephfs:/mnt/cephfs:rshared --entrypoint mount 		"$local_image" -t ceph "$ip:6789:/" /mnt/cephfs -o "name=admin,secret=$key,mds_namespace=cephfs"
-}
 wait_for 180 "cephfs mount" mount_cephfs
 sudo dd if=/dev/urandom of=/mnt/cephfs/file bs=1M count=64 conv=fsync status=none
 sudo sha256sum /mnt/cephfs/file >"$work/cephfs.sum"
@@ -279,7 +213,7 @@ else
 fi
 
 step "libstoragemgmt: lsmd and the simulator plugin"
-sudo podman run --rm --entrypoint /bin/bash "$local_image" -c '(lsmd -d >/dev/null 2>&1 &); sleep 2; lsmcli -u sim:// list --type systems | grep -q sim-01'
+sudo podman run --rm --entrypoint /bin/bash "$tool_image" -c '(lsmd -d >/dev/null 2>&1 &); sleep 2; lsmcli -u sim:// list --type systems | grep -q sim-01'
 endstep
 
 step "disk locate LED: lsmcli cannot do it, so cephadm's command ends in a blinker container"
@@ -287,14 +221,14 @@ step "disk locate LED: lsmcli cannot do it, so cephadm's command ends in a blink
 # command its template renders. The loop device has no LED control, so lsmcli refuses and device-light falls back.
 fsid=$(tbx ceph fsid)
 tbx /usr/libexec/ceph-nix/device-light install
-tbx ceph config-key get mgr/cephadm/blink_device_light_cmd
 tpl=$(tbx ceph config-key get mgr/cephadm/blink_device_light_cmd)
+echo "template: $tpl"
 rendered=$(tbx python3 -c 'import sys, jinja2; print(jinja2.Template(sys.argv[1]).render(on=True, ident_fault="ident", dev="sdb", path="/dev/sdb"))' "$tpl")
 [ "$rendered" = "/usr/libexec/ceph-nix/device-light on ident '/dev/sdb'" ] || { echo "unexpected rendering: $rendered"; exit 1; }
 sudo truncate -s 256M /mnt/blink.img
 bdev=$(sudo losetup -f --show /mnt/blink.img)
 bname=${bdev#/dev/}
-light() { sudo "$work/cephadm" --image "$local_image" shell --fsid "$fsid" -- /usr/libexec/ceph-nix/device-light "$@" </dev/null; }
+light() { sudo "$work/cephadm" --image "$tool_image" shell --fsid "$fsid" -- /usr/libexec/ceph-nix/device-light "$@" </dev/null; }
 # running blinker containers for $bdev (cephadm names them ceph-FSID-container-blink-dev-NAME-HOST)
 blinkers() { sudo podman ps -q --filter "name=container-blink-dev-$bname-" | wc -l; }
 blinkers_are() { [ "$(blinkers)" = "$1" ]; }

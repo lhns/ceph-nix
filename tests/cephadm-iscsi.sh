@@ -6,23 +6,14 @@
 # Needs the host kernel's target_core_user, iscsi_target_mod and iscsi_tcp modules and open-iscsi (cephadm.sh does both).
 set -Eeuo pipefail
 ip=$1 work=$2
-tbx() { sudo podman exec toolbox "$@"; }
-wait_for() { # wait_for SECONDS CMD...
-	local t=$1 i
-	shift
-	for ((i = 0; i < t; i += 5)); do
-		"$@" >/dev/null 2>&1 && return 0
-		sleep 5
-	done
-	return 1
-}
-iscsi_running() { [ "$(sudo podman exec toolbox ceph orch ps --daemon-type iscsi -f json | jq '[.[] | select(.status_desc == "running")] | length')" -ge 1 ]; }
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=lib.sh
+. "$here/lib.sh"
 # the REST API answers a PUT with a JSON message and an HTTP status; show both, fail on 4xx/5xx
 api() { # api METHOD PATH [curl args]
-	local m=$1 p=$2 out code
+	local m=$1 p=$2 code
 	shift 2
-	out=$(curl -s -o /dev/stderr -w '%{http_code}' -X "$m" "$@" "$api/$p" 2>"$work/api.body") || true
-	code=$out
+	code=$(curl -s -o /dev/stderr -w '%{http_code}' -X "$m" "$@" "$api/$p" 2>"$work/api.body") || true
 	echo "$m /api/$p -> $code $(cat "$work/api.body")"
 	[ "$code" -lt 400 ]
 }
@@ -44,10 +35,10 @@ spec:
 YAML
 sudo podman cp "$work/iscsi.yaml" toolbox:/tmp/iscsi.yaml
 tbx ceph orch apply -i /tmp/iscsi.yaml
-wait_for 300 iscsi_running || { tbx ceph orch ps --daemon-type iscsi; false; }
+wait_for 300 "iscsi running" daemon_running iscsi || { tbx ceph orch ps --daemon-type iscsi; false; }
 api="http://admin:admin@127.0.0.1:5001/api"
 iqn=iqn.2001-07.com.ceph:test
-wait_for 120 curl -sf "$api/sysinfo/ip_addresses" || { sudo podman ps -a; false; }
+wait_for 120 "gateway API" curl -sf "$api/sysinfo/ip_addresses" || { sudo podman ps -a; false; }
 # the gateway is named by the API process's own FQDN
 gw=$(curl -sf "$api/sysinfo/hostname" | jq -r .data)
 echo "gateway name: $gw"

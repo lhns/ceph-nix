@@ -30,7 +30,7 @@ on:
         description: Expected `ceph -v` major.minor
         default: "20.2"
       pending_features:
-        description: skip = the dashboard UI is not provided yet (Tentacle dev track); empty = test it
+        description: skip = tolerate the gaps in tests/parity-pending.txt (closed by the Umbrella build); empty = fail on them
         default: skip
 permissions:
   contents: read
@@ -169,7 +169,8 @@ jobs:
           name: image
       - run: |
           zstd -d image.tar.zst -o image.tar
-          docker run --rm -v "$PWD/image.tar:/image.tar:ro" aquasec/trivy:latest image --quiet --input /image.tar             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0
+          docker run --rm -v "$PWD/image.tar:/image.tar:ro" aquasec/trivy:latest image --quiet --input /image.tar \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0
 
   e2e:
     needs: build
