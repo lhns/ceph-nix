@@ -320,7 +320,8 @@ wait_for 180 "blinker gone" blinkers_are 0
 [ "$(services)" = 0 ]
 r1=$(reads); sleep 5; r2=$(reads)
 echo "reads of $bdev: $r1 -> $r2"
-[ "$r2" = "$r1" ]
+# blinking reads ~15k/s; stray reads (udev, device scans) are a handful
+[ $((r2 - r1)) -lt 1000 ]
 light off ident "$bdev"
 # the mgr's own dispatch (ssh to the host, rendered template), when a device the mgr knows has a location
 devid=$(tbx ceph device ls -f json | jq -r '[.[] | select((.location | length) > 0)][0].devid // empty')
