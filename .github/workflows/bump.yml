@@ -1,0 +1,100 @@
+name: bump
+# Weekly: flake.lock update as a PR, and a watch for new upstream Ceph releases. Nothing here changes Ceph itself.
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+permissions: {}
+defaults:
+  run:
+    shell: bash # with pipefail
+
+jobs:
+  flake-lock:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # push bump/flake-lock
+      pull-requests: write
+      actions: write # dispatch the test workflows on that branch
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: bump/flake-lock
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: cachix/install-nix-action@v31
+      - name: nix flake update
+        run: nix flake update
+      - name: branch, PR and tests
+        run: |
+          if git diff --quiet flake.lock; then
+            echo "flake.lock is up to date" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git diff flake.lock | grep -E '^[-+] +"(rev|lastModified)"' || true
+          git -c user.name=github-actions -c user.email=noreply@github.com checkout -B "$BRANCH"
+          git -c user.name=github-actions -c user.email=noreply@github.com commit -am "Update flake.lock"
+          git push --force origin "$BRANCH"
+          {
+            echo "Weekly \`nix flake update\`. Merge when the checks on this branch are green."
+            echo
+            echo "A PR created with the workflow token does not trigger workflows, so \`bump\` started \`ceph\` and"
+            echo "\`nix\` on \`$BRANCH\` by hand (workflow_dispatch); their runs are attached to the branch head. If you"
+            echo "push to this branch yourself, the push triggers them as usual."
+            echo
+            echo "A changed digest after merging makes the next release (ADR 0003); an unchanged one makes none."
+          } > body.md
+          if [ -n "$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[].number')" ]; then
+            gh pr edit "$BRANCH" --body-file body.md
+          else
+            gh pr create --head "$BRANCH" --base main --title "Update flake.lock" --body-file body.md
+          fi
+          gh workflow run nix.yml --ref "$BRANCH"
+          gh workflow run ceph.yml --ref "$BRANCH"
+          echo "Updated PR for $BRANCH; started nix and ceph on it" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  upstream:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: newer upstream release?
+        run: |
+          # the pinned tag is ceph.yml's upstream_image default, e.g. quay.io/ceph/ceph:v20.2.4@sha256:...
+          pinned=$(sed -n 's|^ *default: quay.io/ceph/ceph:\(v[0-9]*\.[0-9]*\.[0-9]*\)@.*|\1|p' .github/workflows/ceph.yml | head -n1)
+          [[ $pinned =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+$ ]] || { echo "::error::no pinned upstream_image in ceph.yml"; exit 1; }
+          series="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+          : > tags.txt
+          for page in 1 2 3 4 5; do
+            curl -fsS "https://quay.io/api/v1/repository/ceph/ceph/tag/?filterTag=$series.&onlyActiveTags=true&limit=100&page=$page" > page.json
+            jq -r --arg s "$series" '.tags[] | select(.name | startswith($s + ".") and test("^[^.]+[.][^.]+[.][0-9]+$")) | "\(.name) \(.manifest_digest)"' page.json >> tags.txt
+            [ "$(jq -r '.has_additional' page.json)" = true ] || break
+          done
+          latest=$(sort -V tags.txt | tail -n1)
+          latest_tag=${latest% *}; latest_digest=${latest#* }
+          echo "pinned $pinned, newest in $series: ${latest_tag:-none}" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ -z "$latest_tag" ] || [ "$(printf '%s\n%s\n' "$pinned" "$latest_tag" | sort -V | tail -n1)" = "$pinned" ]; then
+            exit 0
+          fi
+          title="Upstream Ceph $latest_tag released"
+          # open or closed: a closed issue means it was handled, so never a second one
+          existing=$(gh issue list --state all --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -n1)
+          if [ -n "$existing" ]; then
+            echo "issue #$existing already exists for $latest_tag" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          cat > body.md <<EOF
+          Upstream published \`quay.io/ceph/ceph:$latest_tag\` (\`$latest_digest\`); this repo is pinned to \`$pinned\`.
+          Nothing is bumped automatically. To move to it (ADR 0008):
+
+          - [ ] Check that nixpkgs' \`ceph\` is $latest_tag, or update the Ceph package.
+          - [ ] Re-check every companion version against the new upstream image: \`podman run --rm --entrypoint rpm quay.io/ceph/ceph:$latest_tag -q nfs-ganesha tcmu-runner ceph-iscsi libstoragemgmt\` (versions in \`nix/pkgs/\`).
+          - [ ] Update \`upstream_image\` (tag and digest) and \`expected_version\` in \`.github/workflows/ceph.yml\`, and the parity pin used by the tests.
+          - [ ] Run \`ceph\` (parity, upgrade from upstream) and \`vm-tests\`; the next release number follows from ADR 0003.
+          EOF
+          gh issue create --title "$title" --body-file body.md
