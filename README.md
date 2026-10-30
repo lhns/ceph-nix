@@ -69,6 +69,26 @@ KVM, a signed binary cache via harmonia; see [ADR 0007](docs/adr/0007-self-hoste
   `extra-trusted-public-keys = ceph-nix-cache-1:<public key>` to `nix.conf`.
 - Other options: `runner.count`, `runner.url`, `cache.port`, `gcRoots` (store paths exempt from the weekly GC).
 
+## Disk locate LED
+
+`ceph orch device light on|off <devid>` (and the dashboard's identify button) runs, on the disk's host,
+`cephadm shell -- <mgr/cephadm/blink_device_light_cmd>` in a short-lived container of this image. Ceph's default command
+is `lsmcli local-disk-ident-led-on`, which most SATA disks do not support. The image ships
+`/usr/libexec/ceph-nix/device-light`, which tries `lsmcli` first and, for `ident` on a disk that does not support it,
+blinks the drive's activity LED by reading it in bursts (`/usr/libexec/ceph-nix/blink-disk`; read-only). That loop has to
+outlive cephadm's container, so it runs as a cephadm-managed container service `container.blink-<dev>` on the host;
+`off` removes it. Starting it twice is one blinker. `fault` is native only.
+
+Set the command template once per cluster (new or migrated; the key lives in the mon store, not in the image):
+
+```sh
+cephadm shell -- /usr/libexec/ceph-nix/device-light install
+# or: ceph config-key set mgr/cephadm/blink_device_light_cmd #   "/usr/libexec/ceph-nix/device-light {{ 'on' if on else 'off' }} {{ ident_fault }} '{{ path or dev }}'"
+```
+
+The fallback needs a working `ceph` CLI inside `cephadm shell` on that host, i.e. an admin keyring there (hosts with the
+`_admin` label have one).
+
 ## License
 
 The Nix expressions, scripts and docs here are Apache-2.0. Built artifacts contain Ceph (LGPL-2.1/3, parts GPL),

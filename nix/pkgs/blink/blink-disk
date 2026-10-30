@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Blinks a drive's activity LED by reading it in bursts. For disks that cannot be identified through libstoragemgmt
+# (SATA behind a plain HBA, ...). Read-only, safe for data. Run by device-light in a detached container; stops on TERM.
+# Source: https://gist.githubusercontent.com/lhns/4e259b7eae6a0e6e5a6963579d05108a/raw/f5a7c7ed96c4b2d760370dc5f96247199dad8e47/blink-hdd.sh
+#   blink-disk DEVICE          (or BLINK_DEV=DEVICE)
+disk="${1:-${BLINK_DEV:-}}"
+[ -n "$disk" ] || { echo "usage: blink-disk DEVICE" >&2; exit 2; }
+trap 'exit 0' TERM INT
+while true ; do
+    #blockdev --flushbufs "$disk"
+    err="$(timeout 1s dd "if=$disk" of=/dev/null bs=512 count=409600 conv=noerror iflag=direct 2>&1)"
+    status=$?
+    if [ $status != 0 ] && [ $status != 124 ]; then
+      echo "dd error $status: $err" >&2
+      exit $status
+    fi
+    # sleep as a background job so TERM is handled at once
+    sleep 1 & wait $!
+done

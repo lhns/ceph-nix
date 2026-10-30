@@ -116,6 +116,14 @@ let
     libstoragemgmt
   ];
 
+  # Disk locate LED for `ceph orch device light` (README, "Disk locate LED"): the wrapper cephadm's command template
+  # calls, and the activity-LED blinker it falls back to when libstoragemgmt cannot control the disk's LED.
+  blinkTools = pkgs.runCommand "ceph-nix-blink" { } ''
+    for f in device-light blink-disk; do
+      install -Dm755 ${../pkgs/blink}/$f $out/libexec/ceph-nix/$f
+    done
+  '';
+
   binPackages = [
     cephadm
     ceph
@@ -248,8 +256,9 @@ let
         }; do
           [ -e "$out/usr/lib64/''${l##*/}" ] || ln -s "$l" "$out/usr/lib64/"
         done
+        mkdir -p $out/usr/libexec/ceph-nix
+        for f in device-light blink-disk; do ln -s ${blinkTools}/libexec/ceph-nix/$f $out/usr/libexec/ceph-nix/$f; done
         ${lib.optionalString (smoke != null) ''
-          mkdir -p $out/usr/libexec/ceph-nix
           ln -s ${smoke}/libexec/ceph-nix/smoke $out/usr/libexec/ceph-nix/smoke
         ''}
         mkdir -p $out/etc/ssl/certs $out/etc/dbus-1
