@@ -17,4 +17,6 @@ Each companion is packaged at the exact version upstream's `quay.io/ceph/ceph` i
 ## Consequences
 
 - Swapping the image changes the build, not the daemon behaviour; `tests/upgrade.sh` covers the migration.
+- Ganesha differs per track: 5.9 for Tentacle 20.2.4, 9.16 (`nfs-ganesha-9.16-3`) for Umbrella 21.2.0. tcmu-runner,
+  ceph-iscsi (3.9) and libstoragemgmt (1.10.1) are the same in both upstream images.
 - We own the old-version packaging (patches against current toolchains) instead of nixpkgs.

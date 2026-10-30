@@ -65,18 +65,16 @@ let
     };
 
   # the attributes of a track under its suffix
-  named =
-    suffix: t:
-    {
-      "cephadm-${suffix}" = t.cephadm;
-      "ceph-smoke-${suffix}" = t.smoke;
-      "ledmon-${suffix}" = t.ledmon;
-      "libstoragemgmt-${suffix}" = t.libstoragemgmt;
-      "tcmu-runner-${suffix}" = t.tcmu-runner;
-      "ceph-iscsi-${suffix}" = t.ceph-iscsi;
-      "nfs-ganesha-${suffix}" = t.nfs-ganesha;
-      "ceph-image-${suffix}" = t.image;
-    };
+  named = suffix: t: {
+    "cephadm-${suffix}" = t.cephadm;
+    "ceph-smoke-${suffix}" = t.smoke;
+    "ledmon-${suffix}" = t.ledmon;
+    "libstoragemgmt-${suffix}" = t.libstoragemgmt;
+    "tcmu-runner-${suffix}" = t.tcmu-runner;
+    "ceph-iscsi-${suffix}" = t.ceph-iscsi;
+    "nfs-ganesha-${suffix}" = t.nfs-ganesha;
+    "ceph-image-${suffix}" = t.image;
+  };
 
   # nixpkgs' cached Ceph: the Tentacle dev track.
   tentacle = mkTrack {
