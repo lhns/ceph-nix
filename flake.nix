@@ -64,6 +64,7 @@
                 {
                   services.ceph-host = {
                     enable = true;
+                    image = "localhost/ceph-nix:test";
                     clientKernelModules = true;
                     orchestratorKeys = [ "ssh-ed25519 AAAA test" ];
                   };

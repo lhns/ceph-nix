@@ -13,8 +13,6 @@
 let
   cfg = config.services.ceph-host;
 
-  imageInfo = builtins.fromJSON (builtins.readFile ../ceph-image.json);
-
   unitsState = "${cfg.stateDir}/systemd-units";
   upper = "${unitsState}/upper";
   corePath = lib.makeBinPath [
@@ -86,12 +84,11 @@ in
 
     image = lib.mkOption {
       type = lib.types.str;
-      default = "${imageInfo.image}:${imageInfo.tag}@${imageInfo.digest}";
-      defaultText = lib.literalExpression "image, tag and digest from nix/ceph-image.json";
+      example = "ghcr.io/lhns/ceph-nix:v20.2.4-1@sha256:...";
       description = ''
         Container image cephadm uses, exported as `CEPHADM_IMAGE` so `cephadm bootstrap` picks it
-        up and written to `/etc/ceph-nix/image`. The default is the pinned upstream release, which needs
-        x86-64-v3: on hosts without AVX2 set it to a ghcr.io/lhns/ceph-nix image.
+        up and written to `/etc/ceph-nix/image`. Pin it by digest, at the Ceph release of
+        `cephadmPackage`. No default until our images are released: upstream's needs x86-64-v3.
       '';
     };
 

@@ -23,7 +23,7 @@ Compose it with your own base (it does not bring networking, a bootloader or use
   services.ceph-host = {
     enable = true;
     orchestratorKeys = [ "ssh-ed25519 AAAA... cluster" ]; # allowed to log in as root
-    # image = "ghcr.io/lhns/ceph-nix:...";  # default: the pinned upstream release
+    image = "ghcr.io/lhns/ceph-nix:...";      # required: pin by digest, same Ceph release as the host's cephadm
     # clientKernelModules = true;           # rbd/ceph kernel modules, for hosts that map or mount
   };
 }
