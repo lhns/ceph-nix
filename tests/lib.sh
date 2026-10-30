@@ -8,7 +8,8 @@ endstep() { echo "::endgroup::"; }
 tbx() { sudo podman exec toolbox "$@"; }
 # krbd needs the host's /dev and /sys and udev's events; our rbd from a privileged container does that.
 rbdh() {
-	sudo podman run --rm --privileged --net=host --pid=host -v /dev:/dev -v /sys:/sys -v /run/udev:/run/udev:ro \n		-v /etc/ceph:/etc/ceph --entrypoint rbd "$tool_image" "$@"
+	sudo podman run --rm --privileged --net=host --pid=host -v /dev:/dev -v /sys:/sys -v /run/udev:/run/udev:ro \
+		-v /etc/ceph:/etc/ceph --entrypoint rbd "$tool_image" "$@"
 }
 
 wait_for() { # wait_for SECONDS DESCRIPTION CMD...
@@ -63,7 +64,8 @@ loop_osds() {
 
 # Needs ip, key (client.admin) and /mnt/cephfs made rshared by the caller.
 mount_cephfs() {
-	sudo podman run --rm --privileged --net=host -v /etc/ceph:/etc/ceph -v /mnt/cephfs:/mnt/cephfs:rshared --entrypoint mount \n		"$tool_image" -t ceph "$ip:6789:/" /mnt/cephfs -o "name=admin,secret=$key,mds_namespace=cephfs"
+	sudo podman run --rm --privileged --net=host -v /etc/ceph:/etc/ceph -v /mnt/cephfs:/mnt/cephfs:rshared --entrypoint mount \
+		"$tool_image" -t ceph "$ip:6789:/" /mnt/cephfs -o "name=admin,secret=$key,mds_namespace=cephfs"
 }
 
 # Needs art and work.

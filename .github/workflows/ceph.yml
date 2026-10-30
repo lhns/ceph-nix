@@ -169,7 +169,8 @@ jobs:
           name: image
       - run: |
           zstd -d image.tar.zst -o image.tar
-          docker run --rm -v "$PWD/image.tar:/image.tar:ro" aquasec/trivy:latest image --quiet --input /image.tar \n            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0
+          docker run --rm -v "$PWD/image.tar:/image.tar:ro" aquasec/trivy:latest image --quiet --input /image.tar \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0
 
   e2e:
     needs: build
