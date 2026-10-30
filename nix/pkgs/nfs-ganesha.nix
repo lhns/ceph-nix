@@ -90,14 +90,20 @@ pkgs.stdenv.mkDerivation (finalAttrs: {
   '';
 
   postFixup = ''
-    patchelf --add-rpath $out/lib $out/bin/ganesha.nfsd
-    patchelf --add-rpath $out/lib $out/lib/libganesha_nfsd.so
-    patchelf --add-rpath $out/lib $out/bin/ganesha-rados-grace
-    patchelf --add-rpath $out/lib $out/lib/libganesha_rados_recov.so
-    patchelf --add-rpath $out/lib $out/lib/libganesha_rados_urls.so
+    # the bundled nTIRPC and ganesha's own libraries live in $out/lib: every binary and module finds them there
+    for f in $out/bin/* $(find $out/lib -name '*.so*' -type f); do
+      patchelf --add-rpath $out/lib "$f" 2>/dev/null || true
+    done
   '';
 
   postInstall = ''
+    # the bundled nTIRPC installs to lib64; keep one library dir, and drop its .pc (broken paths, unused)
+    if [ -d $out/lib64 ]; then
+      mkdir -p $out/lib
+      cp -a $out/lib64/. $out/lib/
+      rm -rf $out/lib64
+    fi
+    rm -rf $out/lib/pkgconfig
     install -Dm755 ../tools/mount.9P $tools/bin/mount.9P
     # policy for the D-Bus statistics interface
     install -Dm644 $src/src/scripts/ganeshactl/org.ganesha.nfsd.conf $out/etc/dbus-1/system.d/org.ganesha.nfsd.conf
