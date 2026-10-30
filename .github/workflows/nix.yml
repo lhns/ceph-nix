@@ -1,13 +1,18 @@
 name: nix
 on:
   push:
+    paths-ignore: &skip
+      - docs/**
+      - LICENSE
   pull_request:
+    paths-ignore: *skip
   workflow_dispatch:
 permissions:
   contents: write
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # one run per ref at a time (the format step commits); never cancel a running one
+  cancel-in-progress: false
 
 jobs:
   check:

@@ -2,8 +2,22 @@ name: ceph
 # Image build and the tests that take its tarball (ADR 0006). Dispatch with `image` to test another flake package,
 # e.g. the Umbrella image built on the self-hosted builder.
 on:
+  # Skip pushes that cannot change the image or its tests. No concurrency cancelling: a superseded run is cancelled
+  # by hand, never automatically.
   push:
+    paths-ignore: &skip
+      - docs/**
+      - "**.md"
+      - LICENSE
+      - nix/modules/**
+      - nix/tests/**
+      - nix/overlays/**
+      - nix/pkgs/open-cas/**
+      - .github/dependabot.yml
+      - .github/workflows/nix.yml
+      - .github/workflows/vm-tests.yml
   pull_request:
+    paths-ignore: *skip
   workflow_dispatch:
     inputs:
       image:
@@ -20,9 +34,6 @@ on:
         default: skip
 permissions:
   contents: read
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 defaults:
   run:
     shell: bash # with pipefail
