@@ -331,10 +331,11 @@ tbx rados bench -p post 3 seq
 endstep
 
 step "after: config and mgr modules persisted"
-awk -v v="$(tbx ceph config get osd osd_scrub_sleep)" 'BEGIN { exit !(v == 0.2) }'
-[ "$(tbx ceph config get mon mon_allow_pool_delete)" = true ]
-[ "$(tbx ceph config get global mon_max_pg_per_osd)" = 350 ]
-[ "$(tbx ceph config get mgr mgr_stats_period)" = 7 ]
+for want in "osd osd_scrub_sleep 0.200000" "mon mon_allow_pool_delete true" "global mon_max_pg_per_osd 350" "mgr mgr_stats_period 7"; do
+	read -r sec name val <<<"$want"
+	got=$(jq -r --arg s "$sec" --arg n "$name" '[.[] | select(.section == $s and .name == $n) | .value][0] // "unset"' "$art/after/config.json")
+	[ "$got" = "$val" ] || { echo "config $sec/$name: $got, want $val"; exit 1; }
+done
 # every explicitly set option from before is still there with the same value (cephadm's own tuning excluded)
 keep='[.[] | select(.name != "container_image" and .name != "osd_memory_target") | [.section, .name, .value]]'
 lost=$(jq -n --argjson a "$(jq "$keep" "$art/before/config.json")" --argjson b "$(jq "$keep" "$art/after/config.json")" '$a - $b | .[] | @tsv' -r)
