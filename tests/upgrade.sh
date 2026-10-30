@@ -237,7 +237,8 @@ sudo umount /mnt/nfs
 # config options and mgr modules that must survive the switch
 tbx ceph config set osd osd_scrub_sleep 0.2
 tbx ceph config set mon mon_allow_pool_delete true
-tbx ceph config set global mon_max_pg_per_osd 350
+# 1000: the 3 small OSDs carry rbd, CephFS, rgw, NFS and EC pools; the autoscaler can push them past 350 (TOO_MANY_PGS)
+tbx ceph config set global mon_max_pg_per_osd 1000
 tbx ceph config set mgr mgr_stats_period 7
 tbx ceph mgr module enable iostat
 tbx ceph mgr module enable insights
@@ -331,7 +332,7 @@ tbx rados bench -p post 3 seq
 endstep
 
 step "after: config and mgr modules persisted"
-for want in "osd osd_scrub_sleep 0.200000" "mon mon_allow_pool_delete true" "global mon_max_pg_per_osd 350" "mgr mgr_stats_period 7"; do
+for want in "osd osd_scrub_sleep 0.200000" "mon mon_allow_pool_delete true" "global mon_max_pg_per_osd 1000" "mgr mgr_stats_period 7"; do
 	read -r sec name val <<<"$want"
 	got=$(jq -r --arg s "$sec" --arg n "$name" '[.[] | select(.section == $s and .name == $n) | .value][0] // "unset"' "$art/after/config.json")
 	[ "$got" = "$val" ] || { echo "config $sec/$name: $got, want $val"; exit 1; }
