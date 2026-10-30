@@ -4,8 +4,6 @@ on:
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:
-  push: # TEMP: registers the workflow for dispatch before it is on main
-    branches: [release-automation]
 permissions: {}
 defaults:
   run:
@@ -47,13 +45,19 @@ jobs:
             echo
             echo "A changed digest after merging makes the next release (ADR 0003); an unchanged one makes none."
           } > body.md
+          pr=ok
           if [ -n "$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[].number')" ]; then
-            gh pr edit "$BRANCH" --body-file body.md
+            gh pr edit "$BRANCH" --body-file body.md || pr=failed
           else
-            gh pr create --head "$BRANCH" --base main --title "Update flake.lock" --body-file body.md
+            gh pr create --head "$BRANCH" --base main --title "Update flake.lock" --body-file body.md || pr=failed
           fi
+          # the tests run either way, so the branch is checkable even when the PR could not be opened
           gh workflow run nix.yml --ref "$BRANCH"
           gh workflow run ceph.yml --ref "$BRANCH"
+          if [ "$pr" = failed ]; then
+            echo "::error::branch $BRANCH is pushed and tested, but the PR could not be created or updated. Enable Settings > Actions > General > 'Allow GitHub Actions to create and approve pull requests', or open it by hand."
+            exit 1
+          fi
           echo "Updated PR for $BRANCH; started nix and ceph on it" | tee -a "$GITHUB_STEP_SUMMARY"
 
   upstream:
