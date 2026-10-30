@@ -244,7 +244,7 @@ let
         ''}
         mkdir -p $out/etc/ssl/certs $out/etc/dbus-1
         # the RPC library (ganesha's registration with rpcbind) needs netconfig, protocols, services and rpc
-        for f in netconfig; do ln -s ${pkgs.libtirpc}/etc/$f $out/etc/$f; done
+        ln -s ${pkgs.libtirpc}/etc/netconfig $out/etc/netconfig
         for f in protocols services; do ln -s ${pkgs.iana-etc}/etc/$f $out/etc/$f; done
         ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-bundle.crt
         ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-certificates.crt

@@ -90,8 +90,8 @@ in
       defaultText = lib.literalExpression "image, tag and digest from nix/ceph-image.json";
       description = ''
         Container image cephadm uses, exported as `CEPHADM_IMAGE` so `cephadm bootstrap` picks it
-        up and written to `/etc/ceph-nix/image`. The default is the pinned upstream release; the
-        release flow points it at the ghcr.io/lhns/ceph-nix image.
+        up and written to `/etc/ceph-nix/image`. The default is the pinned upstream release, which needs
+        x86-64-v3: on hosts without AVX2 set it to a ghcr.io/lhns/ceph-nix image.
       '';
     };
 

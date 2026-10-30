@@ -83,7 +83,7 @@ Set the command template once per cluster (new or migrated; the key lives in the
 
 ```sh
 cephadm shell -- /usr/libexec/ceph-nix/device-light install
-# or: ceph config-key set mgr/cephadm/blink_device_light_cmd #   "/usr/libexec/ceph-nix/device-light {{ 'on' if on else 'off' }} {{ ident_fault }} '{{ path or dev }}'"
+# or: ceph config-key set mgr/cephadm/blink_device_light_cmd \n#   "/usr/libexec/ceph-nix/device-light {{ 'on' if on else 'off' }} {{ ident_fault }} '{{ path or dev }}'"
 ```
 
 The fallback needs a working `ceph` CLI inside `cephadm shell` on that host, i.e. an admin keyring there (hosts with the

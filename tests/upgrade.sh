@@ -285,8 +285,6 @@ got_version=$(jq -r '.overall | keys[0]' "$art/after/versions.json" | sed -E 's/
 endstep
 
 step "after: data intact"
-PS4='+ [$(date +%T)] '
-set -x
 tbx rados -p ecpool get obj /tmp/ec.out
 sudo podman cp toolbox:/tmp/ec.out "$work/ec.out"
 cmp "$work/ec.in" "$work/ec.out"
@@ -318,12 +316,10 @@ if ! wait_for 300 "nfs read" nfs_read; then
 	sudo timeout 60 "$work/cephadm" logs --name "$(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].daemon_name')" 2>&1 | tail -150 || true
 	sudo timeout 20 dmesg | grep -iE 'nfs|rpc' | tail -30 || true
 	sudo umount -f -l /mnt/nfs || true
-	sudo umount -f -l /mnt/nfs || true
 else
 	sudo umount /mnt/nfs
 fi
 python3 "$work/s3.py" get "http://$ip:8080" "$work/s3.json"
-set +x
 # and the upgraded cluster takes new writes
 tbx ceph osd pool create post 8 >/dev/null
 tbx ceph osd pool application enable post rados
@@ -407,12 +403,10 @@ rollback_info() {
 	tbx ceph versions
 	tbx ceph -s
 	if [ -n "$bad" ]; then summary "rollback: finished in $((SECONDS - t0))s but daemons not on $rollback: $bad"; return 1; fi
-	summary "rollback to $rollback: OK in $((SECONDS - t0))s, health: $(tbx ceph health detail | head -3 | tr '
-' ' ')"
+	summary "rollback to $rollback: OK in $((SECONDS - t0))s, health: $(tbx ceph health detail | head -3 | tr '\n' ' ')"
 }
 rollback_info || summary "rollback result: NOT OK (informational, not gating)"
 endstep
 
 [ -z "$nfs_failed" ] || { summary "RESULT upgrade: NFS data unreadable after the upgrade (all other checks passed)"; exit 1; }
-summary "RESULT upgrade $from_image -> $to_image OK in ${upgrade_secs}s; warnings after: $(tr '
-' ' ' <"$art/after/health-checks.txt")"
+summary "RESULT upgrade $from_image -> $to_image OK in ${upgrade_secs}s; warnings after: $(tr '\n' ' ' <"$art/after/health-checks.txt")"

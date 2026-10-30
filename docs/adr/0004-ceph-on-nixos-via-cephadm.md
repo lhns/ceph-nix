@@ -51,9 +51,8 @@ does not import `nixos-cloudinit`; consumers compose it with their base.
   `--key_type aes`; the mons then warn (`AUTH_INSECURE_*`). The VM test does this for Ceph 20 and later (confirmed on Tentacle 20.2.4).
   Userspace clients are unaffected.
 - An LVM volume on an Open CAS device keeps the cache open at shutdown, so `open-cas-shutdown` cannot stop it and
-  the cache comes back dirty with its core inactive. Deactivate the VG first (the test adds
-  `ExecStartPre=-vgchange -an vgcas` to `open-cas-shutdown`); the opencas module could do this for VGs on cas
-  devices.
+  the cache comes back dirty with its core inactive. The opencas module therefore deactivates VGs on cas
+  devices in `open-cas-shutdown` before it stops them.
 - Host state (units, keys) lives outside the Nix store and is not declarative.
 - The VM test (`packages.x86_64-linux.test-ceph-host`, `vm-tests.yml`) is the regression guard: cephadm on NixOS
   with our image on a CPU without AVX2 (a v2-only host). `test-ceph-cpu` is its negative control: on that CPU

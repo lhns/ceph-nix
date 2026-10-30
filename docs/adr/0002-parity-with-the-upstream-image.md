@@ -17,8 +17,8 @@ Parity is checked in two dimensions:
    sgdisk, partprobe and the lvm tools.
 2. Build flags: the el9 `ceph.spec.in` bconds are compared with our `cmakeFlags`.
 
-`tests/parity.sh` enforces (1) with an allowlist. Every accepted deviation is listed in this ADR. Candidate:
-`gcc`.
+`tests/parity.sh` enforces (1) with an allowlist. Every accepted deviation is a line in
+`tests/parity-allow.txt` with its reason, so a deviation is reviewed in the diff that adds it.
 
 ## Consequences
 
