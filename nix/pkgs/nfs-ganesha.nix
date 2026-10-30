@@ -1,15 +1,24 @@
 # NFS-Ganesha pinned to the release upstream's quay.io/ceph/ceph image ships for this Ceph release (ADR 0008:
-# 5.9 for Tentacle 20.2.4), not nixpkgs' 9.x. A different Ganesha major changes the rados_cluster recovery
-# behaviour: after `ceph orch upgrade` the export stayed in grace forever (tests/upgrade.sh).
+# 5.9 for Tentacle 20.2.4, 9.16 for Umbrella 21.2.0), not nixpkgs' 9.13. A different Ganesha major changes the
+# rados_cluster recovery behaviour: after `ceph orch upgrade` the export stayed in grace forever (tests/upgrade.sh).
 # Same FSALs and options as upstream's RPM: FSAL_CEPH, FSAL_RGW, RADOS_RECOV, RADOS_URLS.
-{ pkgs, ceph }:
+# Both use the nTIRPC submodule of their release: nixpkgs' ntirpc is a different version.
+{
+  pkgs,
+  ceph,
+  version ? "5.9",
+}:
 let
   inherit (pkgs) lib;
   nixpkgsGanesha = pkgs.nfs-ganesha;
+  hashes = {
+    "5.9" = "sha256-cqX69vc9wPklguqXMnp75zai6vtBrl6IgfwFbNHaKBA=";
+    "9.16" = "sha256-OkKQ5z9lsKu2NxW7TuBg2ag4bI6DK5e2ZGVby3zN0W0=";
+  };
 in
 pkgs.stdenv.mkDerivation (finalAttrs: {
   pname = "nfs-ganesha";
-  version = "5.9";
+  inherit version;
 
   outputs = [
     "out"
@@ -21,8 +30,8 @@ pkgs.stdenv.mkDerivation (finalAttrs: {
     owner = "nfs-ganesha";
     repo = "nfs-ganesha";
     tag = "V${finalAttrs.version}";
-    fetchSubmodules = true; # the bundled nTIRPC of this release; nixpkgs' is for 9.x
-    hash = "sha256-cqX69vc9wPklguqXMnp75zai6vtBrl6IgfwFbNHaKBA=";
+    fetchSubmodules = true; # the bundled nTIRPC of this release
+    hash = hashes.${version};
   };
 
   # 5.9's CMakeLists has the same dbus block as 9.x (offset only)
@@ -100,6 +109,7 @@ pkgs.stdenv.mkDerivation (finalAttrs: {
     # broken paths, unused (nixpkgs' fixup also moves lib64 into lib, leaving lib64 as a symlink: the compiled-in
     # FSAL path keeps working)
     rm -rf $out/lib64/pkgconfig
+    ${lib.optionalString (lib.versionAtLeast version "9") "rm -rf $out/lib/pkgconfig # 9.x installs it here"}
     install -Dm755 ../tools/mount.9P $tools/bin/mount.9P
     # policy for the D-Bus statistics interface
     install -Dm644 $src/src/scripts/ganeshactl/org.ganesha.nfsd.conf $out/etc/dbus-1/system.d/org.ganesha.nfsd.conf
