@@ -234,19 +234,8 @@ if ! wait_for 30 "nfs live export reload" mount_nfs; then
 fi
 put_files /mnt/nfs/nfsdata "$work/nfs.md5"
 sudo umount /mnt/nfs
-# control for the post-upgrade NFS result: does a plain ganesha restart on the starting image keep the export readable?
-tbx ceph orch restart nfs.nfs1
-sleep 30
-wait_for 300 "nfs running after control restart" daemon_running nfs || true
-nfs_read_before() { mount_nfs && (cd /mnt/nfs/nfsdata && sudo timeout -s KILL 20 md5sum -c "$work/nfs.md5"); r=$?; sudo umount -f -l /mnt/nfs 2>/dev/null; return $r; }
-if wait_for 300 "nfs readable after restart on starting image" nfs_read_before; then
-	summary "NFS control: restart on $from_image keeps the export readable"
-else
-	summary "NFS control: restart on $from_image ALSO leaves the export unreadable"
-fi
-tbx ganesha-rados-grace --pool .nfs --ns nfs1 --cephconf /etc/ceph/ceph.conf || true
 # config options and mgr modules that must survive the switch
-tbx ceph config set osd osd_max_backfills 3
+tbx ceph config set osd osd_scrub_sleep 0.2
 tbx ceph config set mon mon_allow_pool_delete true
 tbx ceph config set global mon_max_pg_per_osd 350
 tbx ceph config set mgr mgr_stats_period 7
@@ -328,28 +317,6 @@ if ! wait_for 300 "nfs read" nfs_read; then
 	sudo timeout 60 "$work/cephadm" logs --name "$(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].daemon_name')" 2>&1 | tail -150 || true
 	sudo timeout 20 dmesg | grep -iE 'nfs|rpc' | tail -30 || true
 	sudo umount -f -l /mnt/nfs || true
-	# informational: does restarting the service bring it back?
-	tbx ceph orch restart nfs.nfs1 || true
-	sleep 30
-	wait_for 300 "nfs running again" daemon_running nfs || true
-	if wait_for 120 "nfs remount" mount_nfs && wait_for 300 "nfs read after restart" nfs_read; then
-		summary "NFS: readable again after ceph orch restart nfs.nfs1"
-	else
-		summary "NFS: still unreadable after ceph orch restart nfs.nfs1"
-	fi
-	sudo umount -f -l /mnt/nfs || true
-	# informational: does resetting the recovery state (grace db and rec objects) bring it back?
-	tbx ceph orch ps --daemon-type nfs --refresh || true
-	for o in $(tbx rados -p .nfs -N nfs1 ls | grep -E '^(grace|rec-)'); do tbx rados -p .nfs -N nfs1 rm "$o" || true; done
-	tbx ceph orch restart nfs.nfs1 || true
-	sleep 30
-	wait_for 300 "nfs running after state reset" daemon_running nfs || true
-	if wait_for 120 "nfs remount" mount_nfs && wait_for 300 "nfs read after reset" nfs_read; then
-		summary "NFS: readable again after removing the grace db and rec-* objects and restarting"
-	else
-		summary "NFS: still unreadable after removing the grace db"
-		tbx ganesha-rados-grace --pool .nfs --ns nfs1 --cephconf /etc/ceph/ceph.conf || true
-	fi
 	sudo umount -f -l /mnt/nfs || true
 else
 	sudo umount /mnt/nfs
@@ -364,7 +331,7 @@ tbx rados bench -p post 3 seq
 endstep
 
 step "after: config and mgr modules persisted"
-[ "$(tbx ceph config get osd osd_max_backfills)" = 3 ]
+awk -v v="$(tbx ceph config get osd osd_scrub_sleep)" 'BEGIN { exit !(v == 0.2) }'
 [ "$(tbx ceph config get mon mon_allow_pool_delete)" = true ]
 [ "$(tbx ceph config get global mon_max_pg_per_osd)" = 350 ]
 [ "$(tbx ceph config get mgr mgr_stats_period)" = 7 ]
