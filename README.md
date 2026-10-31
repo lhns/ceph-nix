@@ -4,7 +4,7 @@ Ceph built from source with Nix, for hosts without x86-64-v3 (AVX2):
 
 - an OCI image with feature parity to `quay.io/ceph/ceph`, for cephadm and Rook;
 - a NixOS module for Ceph hosts managed by cephadm with that image;
-- OpenCAS packages and a NixOS module, from [lhns/open-cas-linux](https://github.com/lhns/open-cas-linux);
+- OpenCAS packages and a NixOS module, from [lhns/opencas-nix](https://github.com/lhns/opencas-nix) (an input);
 - a NixOS module for the build host and its binary cache.
 
 Work in progress. Decisions are in [`docs/adr/`](docs/adr). The ceph-csi counterpart is
@@ -92,29 +92,10 @@ The fallback needs a working `ceph` CLI inside `cephadm shell` on that host, i.e
 
 ## OpenCAS
 
-`nixosModules.opencas` (it adds the `open-cas` overlay: `pkgs.open-cas` and `boot.kernelPackages.open-cas`)
-provides [Open CAS](https://github.com/lhns/open-cas-linux) block caching: the kernel module, `casadm`/`casctl`, udev
-rules and units, and `/etc/opencas/opencas.conf` generated from `services.opencas.caches` (cache id -> `device`,
-`mode`, `cacheLineSize`, `extraFlags`, `ioClasses`, `cores`). LVM is taught about `/dev/cas*` devices and the raw
-devices are hidden from it, and a shutdown with active LVs on a cas device does not leave the cache dirty.
-`initializeBlankCaches` creates a cache once on a device without any signature (a marker in `/var/lib/opencas`
-prevents ever formatting it again); without it, create the cache once with `casctl init`. Devices must be
-`/dev/disk/by-id` or `by-path` links. The VM test is `nix build .#checks.x86_64-linux.opencas` (also part of `nix flake check`).
-
-```nix
-{
-  imports = [ ceph-nix.nixosModules.opencas ];
-  services.opencas = {
-    enable = true;
-    initializeBlankCaches = true;
-    caches."1" = {
-      device = "/dev/disk/by-id/nvme-EXAMPLE";
-      mode = "wb";
-      cores = [ "/dev/disk/by-id/wwn-0x123456789abcdef0" ]; # /dev/cas1-1
-    };
-  };
-}
-```
+The Open CAS packages and the `services.opencas` module live in [lhns/opencas-nix](https://github.com/lhns/opencas-nix)
+([ADR 0009](docs/adr/0009-opencas-in-its-own-repo.md)), which this flake takes as the input `opencas-nix`.
+`nixosModules.opencas` (and `overlays.default`) re-export its module (and overlay), so existing users keep working;
+new users can depend on opencas-nix directly. Its README has the options and a usage example.
 
 ## Tracks
 
@@ -129,7 +110,7 @@ prevents ever formatting it again); without it, create the cache once with `casc
 
 Each Ceph release line is published as `ghcr.io/lhns/ceph-nix:v<ceph version>-<n>` (e.g. `v20.2.4-1`) and as a
 GitHub release with the same tag, whose notes give the manifest digest, the config digest, the `flake.lock` revisions
-of nixpkgs and open-cas-src and the companion versions. A tag is never moved; `<n>` goes up when the image changes
+of nixpkgs and opencas-nix and the companion versions. A tag is never moved; `<n>` goes up when the image changes
 (for example a new nixpkgs revision with a security fix). Pin by digest, as in `services.ceph-host.image`:
 
 ```
@@ -147,5 +128,5 @@ weekly `flake.lock` PR and an issue when upstream publishes a newer Ceph release
 ## License
 
 The Nix expressions, scripts and docs here are Apache-2.0. Built artifacts contain Ceph (LGPL-2.1/3, parts GPL),
-OpenCAS (BSD-3-Clause) and nixpkgs packages under their own licenses; their sources are the pinned upstream sources
+nixpkgs packages under their own licenses; their sources are the pinned upstream sources
 in `flake.lock` and the Nix expressions.

@@ -11,8 +11,6 @@ on:
       - LICENSE
       - nix/modules/**
       - nix/tests/**
-      - nix/overlays/**
-      - nix/pkgs/open-cas/**
       - .github/dependabot.yml
       - .github/workflows/nix.yml
       - .github/workflows/release.yml

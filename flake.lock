@@ -77,11 +77,32 @@
         "url": "https://github.com/lhns/open-cas-linux"
       }
     },
+    "opencas-nix": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "open-cas-src": "open-cas-src"
+      },
+      "locked": {
+        "lastModified": 1793454664,
+        "narHash": "sha256-4l7qf/YKjXyfn4szXvcBgV+G7qKFxktzAVhU4r+A6AE=",
+        "owner": "lhns",
+        "repo": "opencas-nix",
+        "rev": "201a4230a3feea2452fd30530a959410f1486b52",
+        "type": "github"
+      },
+      "original": {
+        "owner": "lhns",
+        "repo": "opencas-nix",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "nixos-cloudinit": "nixos-cloudinit",
         "nixpkgs": "nixpkgs",
-        "open-cas-src": "open-cas-src"
+        "opencas-nix": "opencas-nix"
       }
     }
   },
