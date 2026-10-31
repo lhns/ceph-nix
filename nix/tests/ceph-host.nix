@@ -7,6 +7,7 @@
   pkgs,
   self,
   nixos-cloudinit,
+  opencas-nix,
   # Run the pinned upstream release instead of our image. It needs AVX2, so the CPU is not masked, and the
   # cephadm of this repo (Ceph 20) is not the image's; best effort, not run in CI.
   upstream ? false,
@@ -149,7 +150,7 @@ pkgs.testers.runNixOSTest {
       imports = [
         (base "node2")
         host
-        self.nixosModules.opencas
+        opencas-nix.nixosModules.opencas
       ];
       virtualisation.emptyDiskImages = [
         (disk "N2OSD1" 8192)

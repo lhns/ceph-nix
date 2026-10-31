@@ -7,10 +7,10 @@
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  # The fork adds a per-IO-class cache mode; OCF is a submodule.
-  inputs.open-cas-src = {
-    url = "git+https://github.com/lhns/open-cas-linux?ref=refs/tags/v26.03.3%2Bmode.2&submodules=1";
-    flake = false;
+  # Open CAS packages and module (ADR 0009); it brings its own open-cas-src.
+  inputs.opencas-nix = {
+    url = "github:lhns/opencas-nix";
+    inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -18,31 +18,36 @@
       self,
       nixpkgs,
       nixos-cloudinit,
-      open-cas-src,
+      opencas-nix,
     }:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
-      ocPkgs = import nixpkgs {
-        inherit system;
-        overlays = [ self.overlays.default ];
-      };
-      ocKernels = ocPkgs.linuxKernel.packages;
     in
     {
-      overlays.default = import ./nix/overlays/open-cas.nix { inherit open-cas-src; };
+      overlays.default = opencas-nix.overlays.default;
 
       formatter.${system} = pkgs.nixfmt;
 
       packages.${system} = import ./nix/images { inherit pkgs self; } // {
-        open-cas = ocPkgs.open-cas;
-        open-cas-kmod = ocPkgs.linuxPackages.open-cas;
         # Slow VM test (about 30 minutes): run by .github/workflows/vm-tests.yml, not part of `checks`.
-        test-ceph-host = import ./nix/tests/ceph-host.nix { inherit pkgs self nixos-cloudinit; };
+        test-ceph-host = import ./nix/tests/ceph-host.nix {
+          inherit
+            pkgs
+            self
+            nixos-cloudinit
+            opencas-nix
+            ;
+        };
         test-ceph-cpu = import ./nix/tests/ceph-cpu.nix { inherit pkgs self; };
         # The same tests with the Umbrella image: run on the self-hosted builder, not by CI (ADR 0007).
         test-ceph-host-umbrella = import ./nix/tests/ceph-host.nix {
-          inherit pkgs self nixos-cloudinit;
+          inherit
+            pkgs
+            self
+            nixos-cloudinit
+            opencas-nix
+            ;
           track = "umbrella";
         };
         test-ceph-cpu-umbrella = import ./nix/tests/ceph-cpu.nix {
@@ -54,12 +59,8 @@
       nixosModules = {
         builder = import ./nix/modules/builder.nix;
         ceph-host = import ./nix/modules/ceph-host.nix;
-        opencas =
-          { ... }:
-          {
-            imports = [ ./nix/modules/opencas.nix ];
-            nixpkgs.overlays = [ self.overlays.default ];
-          };
+        # Re-exported so existing users keep working; it lives in lhns/opencas-nix.
+        opencas = opencas-nix.nixosModules.opencas;
       };
 
       checks.${system} = {
@@ -117,10 +118,6 @@
           pkgs.writeText "builder-eval" (
             builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath
           );
-        opencas = import ./nix/tests/opencas.nix { inherit pkgs self; };
-        # Supported kernels (5.10 to 7.0): the default one is also covered by the VM test.
-        open-cas-kmod-lts = ocKernels.linux_6_12.open-cas;
-        open-cas-kmod-latest = ocKernels.linux_6_18.open-cas;
         formatting =
           pkgs.runCommand "formatting"
             {
