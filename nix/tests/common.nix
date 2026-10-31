@@ -9,6 +9,11 @@ in
   # A v2-only CPU: qemu's host model minus what x86-64-v3 needs (glibc checks AVX2, BMI1/2, FMA, F16C ...).
   maskedCpu = "host,-avx2,-bmi1,-bmi2,-fma,-f16c,-avx512f";
 
+  # A streamed image as a file for `podman load -i`. The stream script tars tens of thousands of small files from the
+  # VM's 9p store, which took over an hour for the Umbrella image; reading one big file is fast. It costs the image's
+  # size in the store, so the Tentacle tests on CI runners keep streaming.
+  imageTar = image: pkgs.runCommand "${image.name}.tar" { } "${image} > $out";
+
   # docker-archive of the pinned upstream release (needs a v3 CPU).
   upstreamImage = pkgs.dockerTools.pullImage {
     imageName = imageInfo.image;

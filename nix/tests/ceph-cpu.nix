@@ -13,11 +13,18 @@ let
   packages = self.packages.x86_64-linux;
   cephPkg = if track == "umbrella" then packages.ceph-umbrella else pkgs.ceph;
   ours = packages."ceph-image-${track}";
+  loadOurs =
+    if track == "tentacle" then
+      "set -o pipefail; ${ours} | podman load"
+    else
+      "podman load -i ${common.imageTar ours} </dev/null";
   oursRef = "localhost/ceph-nix:${cephPkg.version}";
 in
 pkgs.testers.runNixOSTest {
   name = "ceph-cpu${lib.optionalString (track != "tentacle") "-${track}"}";
   skipTypeCheck = true;
+  # the default is 1 h; streaming the Umbrella image into the VM's podman alone took about 45 minutes on 2 cores
+  globalTimeout = 2 * 3600;
   nodes.machine = {
     virtualisation.podman.enable = true;
     virtualisation = {
@@ -37,7 +44,7 @@ pkgs.testers.runNixOSTest {
     print(f"upstream: rc={rc}\n{out}")
     assert rc != 0 and "x86-64-v3" in out, (rc, out)
 
-    machine.succeed("set -o pipefail; ${ours} | podman load", timeout=3600)
+    machine.succeed("${loadOurs}", timeout=3600)
     out = machine.succeed("podman run --rm ${oursRef} ceph --version </dev/null 2>&1", timeout=600)
     print(f"ours: {out}")
     assert "ceph version ${cephPkg.version}" in out, out

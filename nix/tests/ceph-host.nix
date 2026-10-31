@@ -32,7 +32,12 @@ let
 
   # load the image into the VM's podman, and the name:tag it carries
   loadImage =
-    if upstream then "podman load -i ${upstreamImage}" else "set -o pipefail; ${ours} | podman load";
+    if upstream then
+      "podman load -i ${upstreamImage}"
+    else if track == "tentacle" then
+      "set -o pipefail; ${ours} | podman load"
+    else
+      "podman load -i ${common.imageTar ours}";
   imageSource =
     if upstream then "${imageInfo.image}:${imageInfo.tag}" else "localhost/ceph-nix:${imageVersion}";
   cpu = if upstream then "host" else common.maskedCpu;
