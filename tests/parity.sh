@@ -5,6 +5,7 @@
 # (resolve) in ours, unless tests/parity-allow.txt allows it. Gaps the Umbrella build closes are in
 # tests/parity-pending.txt and only tolerated with PARITY_PENDING_OK=1. Both files: one shell glob per line, then
 # "# reason, ADR 0002".
+# PARITY_USERLAND=el10 for the Umbrella image (Rocky 10; default el9, CentOS Stream 9), see tests/parity-allow.txt.
 # Also: `ceph -v` is EXPECTED_MAJOR_MINOR, and every mgr module that imports in upstream's image imports in ours.
 set -uo pipefail
 up=$1 ours=$2 expected=$3
@@ -33,15 +34,22 @@ echo "upstream mgr files: $(grep -c "^/usr/share/ceph/mgr/" "$work/upstream.txt"
 # upstream's /usr/sbin may be /usr/bin (merged usr): an entry exists if it does in either place
 run "$ours" 'while read -r p; do [ -e "$p" ] || echo "$p"; done' <"$work/upstream.txt" | sort -u >"$work/missing.txt"
 
-patterns() { # glob patterns of a list file, checking each has an ADR 0002 reason
-	local f=$1 line
+# Entries tagged [el9]/[el10] (the upstream image's userland) are not stale-checked for the other one.
+userland=${PARITY_USERLAND:-el9}
+patterns() { # glob patterns of a list file, checking each has an ADR 0002 reason; $2: file for the patterns of other userlands
+	local f=$1 line tag
 	while IFS= read -r line; do
 		case $line in '' | '#'*) continue ;; esac
 		grep -q '#.*ADR 0002' <<<"$line" || fail "$f: entry without '# reason, ADR 0002': $line"
 		echo "${line%%#*}" | sed 's/[[:space:]]*$//'
+		tag=$(grep -o '#[[:space:]]*\[el[0-9]*\]' <<<"$line" | grep -o 'el[0-9]*')
+		if [ -n "$tag" ] && [ "$tag" != "$userland" ] && [ -n "${2:-}" ]; then
+			echo "${line%%#*}" | sed 's/[[:space:]]*$//' >>"$2"
+		fi
 	done <"$f"
 }
-patterns "$here/parity-allow.txt" >"$work/allow.pat"
+: >"$work/other.pat"
+patterns "$here/parity-allow.txt" "$work/other.pat" >"$work/allow.pat"
 patterns "$here/parity-pending.txt" >"$work/pending.pat"
 
 matches() { # lines of $1 matching any glob of $2
@@ -77,6 +85,7 @@ for l in allow pending; do
 			case $path in $p) used=1; break ;; esac
 		done <"$work/missing.txt"
 		[ -n "$used" ] && continue
+		grep -qxF -- "$p" "$work/other.pat" && continue
 		if [ $l = allow ]; then fail "unused allow entry: $p"; else echo "NOTE: unused pending entry: $p"; fi
 	done <"$work/$l.pat"
 done

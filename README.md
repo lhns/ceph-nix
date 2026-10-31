@@ -116,6 +116,15 @@ prevents ever formatting it again); without it, create the cache once with `casc
 }
 ```
 
+## Tracks
+
+- Tentacle (20.2.x): nixpkgs' Ceph, so cached; `.#ceph-image-tentacle`. CI builds and tests only this one.
+- Umbrella (21.2.0): nixpkgs' Ceph scope with the source bumped ([`nix/pkgs/ceph`](nix/pkgs/ceph/default.nix)),
+  `.#ceph-image` (also `.#ceph-image-umbrella`, `.#ceph-umbrella`, `.#test-ceph-cpu-umbrella`,
+  `.#test-ceph-host-umbrella`). A from-source build takes hours (2.5 h on 5 cores), which GitHub runners cannot do
+  without a cache, and no check depends on it. It is built and tested on the self-hosted builder
+  ([ADR 0007](docs/adr/0007-self-hosted-builder-and-cache.md)); until that exists, by hand there.
+
 ## Releases
 
 Each Ceph release line is published as `ghcr.io/lhns/ceph-nix:v<ceph version>-<n>` (e.g. `v20.2.4-1`) and as a

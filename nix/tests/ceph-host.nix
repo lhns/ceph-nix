@@ -10,6 +10,8 @@
   # Run the pinned upstream release instead of our image. It needs AVX2, so the CPU is not masked, and the
   # cephadm of this repo (Ceph 20) is not the image's; best effort, not run in CI.
   upstream ? false,
+  # Which of the flake's Ceph tracks to run: tentacle or umbrella (not run in CI: its Ceph is not built there).
+  track ? "tentacle",
 }:
 
 let
@@ -18,19 +20,27 @@ let
   common = import ./common.nix { inherit pkgs; };
   inherit (common) imageInfo upstreamImage;
 
-  ours = self.packages.x86_64-linux.ceph-image-tentacle;
-  cephadm = self.packages.x86_64-linux.cephadm-tentacle;
+  packages = self.packages.x86_64-linux;
+  cephPkg = if track == "umbrella" then packages.ceph-umbrella else pkgs.ceph;
+  ours = packages."ceph-image-${track}";
+  cephadm = packages."cephadm-${track}";
 
-  imageVersion = if upstream then lib.removePrefix "v" imageInfo.tag else pkgs.ceph.version;
+  imageVersion = if upstream then lib.removePrefix "v" imageInfo.tag else cephPkg.version;
   # Ceph 20 (Tentacle) and later create AES256KRB5 keys by default (seen on 20.2.4: the key starts with "Ag")
   # and the mons only allow that cipher, which the kernel client cannot use (see kernel_key). Older releases do not need the workaround.
   aesWorkaround = lib.versionAtLeast imageVersion "20";
 
   # load the image into the VM's podman, and the name:tag it carries
   loadImage =
-    if upstream then "podman load -i ${upstreamImage}" else "set -o pipefail; ${ours} | podman load";
+    if upstream then
+      "podman load -i ${upstreamImage}"
+    else if track == "tentacle" then
+      "set -o pipefail; ${ours} | podman load"
+    else
+      "podman load -i ${common.imageTar ours}";
   imageSource =
     if upstream then "${imageInfo.image}:${imageInfo.tag}" else "localhost/ceph-nix:${imageVersion}";
+  timeoutHours = if track == "tentacle" then 4 else 8;
   cpu = if upstream then "host" else common.maskedCpu;
 
   registry = "node1:5000";
@@ -103,8 +113,9 @@ let
 in
 pkgs.testers.runNixOSTest {
   name = "ceph-host";
-  globalTimeout = 4 * 3600;
-  meta.timeout = 4 * 3600;
+  # the Umbrella image is larger and the build VM slower than a CI runner: it took 2 h to get to the first I/O
+  globalTimeout = timeoutHours * 3600;
+  meta.timeout = timeoutHours * 3600;
   skipTypeCheck = true;
   node.pkgsReadOnly = false; # the opencas module adds its overlay
 
@@ -267,8 +278,9 @@ pkgs.testers.runNixOSTest {
 
 
       def rbd_user_write():
-          ok(node1, "cephadm shell -- rbd import /etc/ceph/ceph.conf rbd/uimg")
-          return quiet("md5sum /etc/ceph/ceph.conf").split()[0]
+          # not ceph.conf: each `cephadm shell` generates it, and it changes while the second mon is deployed
+          ok(node1, "cephadm shell -- rbd import /etc/os-release rbd/uimg")
+          return quiet("md5sum /etc/os-release").split()[0]
 
 
       def rbd_user_read():
@@ -432,8 +444,8 @@ pkgs.testers.runNixOSTest {
               ceph("osd erasure-code-profile set ec21 k=2 m=1 crush-failure-domain=osd")
               ceph("osd pool create ecpool 16 16 erasure ec21")
               ceph("osd pool application enable ecpool rgw")
-              ok(node1, "cephadm shell -- rados -p ecpool put obj /etc/ceph/ceph.conf")
-              ec_expect = quiet("md5sum /etc/ceph/ceph.conf").split()[0]
+              ok(node1, "cephadm shell -- rados -p ecpool put obj /etc/os-release")
+              ec_expect = quiet("md5sum /etc/os-release").split()[0]
               got = ec_md5().split()[0]
               assert got == ec_expect, (got, ec_expect)
 
