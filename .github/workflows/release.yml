@@ -111,7 +111,7 @@ jobs:
           {
             echo "package=$PACKAGE"; echo "ver=$ver"; echo "tag=$tag"; echo "changed=$changed"; echo "newest=$newest"
             echo "config_digest=$config_digest"; echo "identity=$ident_new"
-            echo "nixpkgs=$(lock nixpkgs)"; echo "open_cas_src=$(lock open-cas-src)"
+            echo "nixpkgs=$(lock nixpkgs)"; echo "opencas_nix=$(lock opencas-nix)"; echo "open_cas_src=$(lock open-cas-src)"
           } | tee plan.env
           printf '%s' "$companions" > companions.txt
           {
@@ -187,7 +187,7 @@ jobs:
             echo "- config digest (image ID): \`$config_digest\`"
             echo "- image identity (config without the revision label; decides a new release): \`$identity\`"
             echo "- nixpkgs: \`$nixpkgs\`"
-            echo "- open-cas-src: \`$open_cas_src\`"
+            echo "- opencas-nix: \`$opencas_nix\` (open-cas-src: \`$open_cas_src\`)"
             echo "- previous release of this Ceph version: $newest"
             echo
             echo "Companion versions (flake packages):"

@@ -1,6 +1,6 @@
 # 5. OpenCAS from the fork as a flake input
 
-Status: Accepted (2026-10)
+Status: Superseded by [0009](0009-opencas-in-its-own-repo.md)
 
 ## Context
 
