@@ -1,0 +1,26 @@
+# Throwaway probe: can a GitHub-hosted runner build Umbrella Ceph within the 6 h job limit? Not for merge.
+name: probe-umbrella
+on:
+  push:
+    branches: [probe/umbrella-hosted]
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache /usr/local/share/boost /usr/share/swift
+          sudo docker image prune -af >/dev/null
+          df -h / /mnt; nproc; free -g
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
+      - name: Build
+        run: |
+          (while sleep 600; do date -u +%T; df -h / | tail -1; free -g | sed -n 2p; done) &
+          nix build -L --no-link --print-out-paths .#ceph-umbrella 2>&1 | grep -E '^\S+> \[ *[0-9]+%\]' | awk 'NR%200==0' &
+          nix build --no-link --print-out-paths .#ceph-umbrella
+      - if: always()
+        run: df -h /; free -g
