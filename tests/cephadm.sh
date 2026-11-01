@@ -273,6 +273,7 @@ some_blinker() { [ "$(all_blinkers)" -ge 1 ]; }
 no_blinker() { [ "$(all_blinkers)" = 0 ]; }
 dispatch_failed() { # dispatch_failed on|off: the mgr's error, then the same command by hand for device-light's message
 	local loc
+	echo "::error::the mgr's dispatch of device light $1 failed"
 	tbx ceph log last 20 cephadm || true
 	loc=$(tbx ceph device ls -f json | jq -c --arg d "$devid" '.[] | select(.devid == $d) | .location[0]')
 	echo "location: $loc"
