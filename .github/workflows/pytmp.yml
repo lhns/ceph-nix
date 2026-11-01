@@ -1,0 +1,14 @@
+name: pytmp
+on: [push]
+jobs:
+  dump:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          for t in tentacle umbrella; do
+            img=$(jq -r ".$t" tests/upstream-images.json)
+            docker pull -q "$img"
+            echo "=== $t"
+            docker run --rm -v "$PWD/tests/pydists.py:/pydists.py:ro" --entrypoint python3 "$img" /pydists.py enum
+          done
