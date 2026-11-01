@@ -67,7 +67,7 @@ jobs:
         timeout-minutes: 75
         env:
           ARTIFACT_DIR: ${{ github.workspace }}/upgrade-logs
-          NFS_UNREADABLE_OK: "1" # the old ganesha node stays in the grace table, as with upstream's images (see upgrade.sh)
+          NFS_STALE_GRACE: "1" # Tentacle ganesha key left in the grace table; README procedure (see upgrade.sh)
         run: tests/upgrade.sh tentacle/image.tar.zst umbrella/image.tar.zst
       - if: failure() || cancelled()
         uses: actions/upload-artifact@v7
@@ -93,7 +93,7 @@ jobs:
         timeout-minutes: 75
         env:
           ARTIFACT_DIR: ${{ github.workspace }}/upgrade-logs
-          NFS_UNREADABLE_OK: "1"
+          NFS_STALE_GRACE: "1"
         run: tests/upgrade.sh "$(jq -r .tentacle tests/upstream-images.json)" upstream-21.tar
       - if: failure() || cancelled()
         uses: actions/upload-artifact@v7

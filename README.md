@@ -84,6 +84,30 @@ new users can depend on opencas-nix directly. Its README has the options and a u
   derivation and keeps the result in the Actions cache ([ADR 0010](docs/adr/0010-hosted-runners-and-actions-cache.md)).
   CI tests both tracks the same way and the migration from one to the other.
 
+### Migrating 20.2.4 -> 21.2.0
+
+`ceph orch upgrade` works, but NFS exports stay in their grace period afterwards (opens and reads hang; health stays
+OK). Upstream's images do the same. Ganesha 5.9 (Tentacle) is in the grace table under cephadm's nodeid `0`,
+Ganesha 9.16 (Umbrella) under `node0`: it prepends `node` to a numeric nodeid. The 5.9 daemon requests grace under
+`0` when it stops, and no daemon ever lifts it. Once the nfs daemons run 21.2.0, run this in `cephadm shell` for
+each NFS cluster (`ceph nfs cluster ls`):
+
+```sh
+c=<cluster id>
+ganesha-rados-grace --pool .nfs --ns $c dump    # stale: "0  NE"; live: "node0  E"
+stale=$(rados -p .nfs -N $c listomapkeys grace | grep -xE '[0-9]+')
+for k in $stale; do rados -p .nfs -N $c rmomapkey grace $k; done
+for k in $stale; do ganesha-rados-grace --pool .nfs --ns $c start $k; done
+ganesha-rados-grace --pool .nfs --ns $c dump    # within a minute: rec=0, no N
+```
+
+`rados` removes the old keys because 21.2.0's `ganesha-rados-grace` can't name them: it turns `0` into `node0`, so
+`ganesha-rados-grace remove 0` removes the live daemon's key. If you ran that, `ganesha-rados-grace add 0` puts it
+back. Removing a key does not end the grace period by itself. `start` sets need-grace on the live `node<k>` keys,
+and the daemons lift it themselves, which ends the period. Exports, data and the daemons are not touched, and
+nothing is restarted. `tests/upgrade.sh` runs these commands in the `migrate` and `migrate-control` CI legs,
+with one client mount kept across the upgrade and a fresh mount after it.
+
 ## Releases
 
 Each Ceph release line is published as `ghcr.io/lhns/ceph-nix:v<ceph version>-<n>` (e.g. `v20.2.4-1`) and as a
