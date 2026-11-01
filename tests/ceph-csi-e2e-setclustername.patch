@@ -1,0 +1,47 @@
+diff --git a/e2e/operator.go b/e2e/operator.go
+--- a/e2e/operator.go
++++ b/e2e/operator.go
+@@ -66,7 +66,12 @@ func (r *OperatorDeployment) getPodSelector() string {
+ 	return fmt.Sprintf("app in (%s, %s)", r.deploymentName, r.daemonsetName)
+ }
+ 
+-func (OperatorDeployment) setClusterName(value string) error {
++func (r OperatorDeployment) setClusterName(value string) error {
++	oldGeneration, err := getDeploymentGeneration(r.clientSet, r.deploymentName, cephCSINamespace)
++	if err != nil {
++		return fmt.Errorf("failed to get deployment generation before patching: %w", err)
++	}
++
+ 	command := []string{
+ 		"operatorconfigs.csi.ceph.io",
+ 		OperatorConfigName,
+@@ -76,12 +81,14 @@ func (OperatorDeployment) setClusterName(value string) error {
+ 	}
+ 
+ 	// Patch the operator config
+-	err := retryKubectlArgs(cephCSINamespace, kubectlPatch, deployTimeout, command...)
++	err = retryKubectlArgs(cephCSINamespace, kubectlPatch, deployTimeout, command...)
+ 	if err != nil {
+ 		return fmt.Errorf("failed to set cluster name: %w", err)
+ 	}
+ 
+-	return nil
++	// A new cluster name rolls the plugins out. A volume request that reaches a pod being replaced can leak its
++	// journal object, so wait for the rollout like setEnableFencing does.
++	return r.waitForRollout(oldGeneration)
+ }
+ 
+ func (r OperatorDeployment) setEnableFencing(enable bool) error {
+@@ -103,6 +110,12 @@ func (r OperatorDeployment) setEnableFencing(enable bool) error {
+ 		return fmt.Errorf("failed to set enable fencing: %w", err)
+ 	}
+ 
++	return r.waitForRollout(oldGeneration)
++}
++
++// waitForRollout waits for the rollout that a change of the operator config causes, if the deployment's generation
++// moves away from oldGeneration: the deployment and daemonset, then the sidecars' leader leases.
++func (r OperatorDeployment) waitForRollout(oldGeneration int64) error {
+ 	changed, err := waitForDeploymentGenerationChange(r.clientSet, r.deploymentName, cephCSINamespace, oldGeneration)
+ 	if err != nil {
+ 		return fmt.Errorf("error checking deployment %s generation: %w", r.deploymentName, err)

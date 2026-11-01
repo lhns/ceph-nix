@@ -7,13 +7,19 @@
 # Needs: docker, go, gh (GH_TOKEN) and sudo; runs minikube.
 set -xeEuo pipefail
 ceph_image=$1 minor=${2:-1.35}
+here=$(cd "$(dirname "$0")" && pwd)
 work=${E2E_DIR:-$PWD/e2e-work}
 logdir=/tmp/acceptance-e2e-logs
 
 tag=${CEPH_CSI_TAG:-$(gh release list -R lhns/ceph-csi-x86-64-v2 --limit 1 --json tagName -q '.[0].tagName')}
 echo "ceph-csi $tag"
 mkdir -p "$work"
-[ -d "$work/ceph-csi" ] || git clone --depth 1 --branch "$tag" https://github.com/ceph/ceph-csi "$work/ceph-csi"
+if [ ! -d "$work/ceph-csi" ]; then
+	git clone --depth 1 --branch "$tag" https://github.com/ceph/ceph-csi "$work/ceph-csi"
+	# Upstream's setClusterName does not wait for the plugin rollout it causes, so the first RBD PVC can reach a
+	# ctrlplugin that is being replaced, which leaks the volume's journal object (the omap count check fails).
+	git -C "$work/ceph-csi" apply "$here/ceph-csi-e2e-setclustername.patch"
+fi
 cd "$work/ceph-csi"
 
 set -a
@@ -76,4 +82,4 @@ log=$work/e2e-output.log
 	--deploy-rbd=false --deploy-cephfs=false --operator-deployment --skip-vault=true 2>&1 | tee "$log"
 # a suite that skips every spec passes; fail it instead
 grep -o 'Ran [0-9]* of [0-9]* Specs' "$log" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
-! grep -q 'Ran 0 of' "$log"
+if grep -q 'Ran 0 of' "$log"; then echo "no spec ran"; exit 1; fi

@@ -66,7 +66,9 @@ jq -r '.disabled_modules[] | select(.can_run == false) | "\(.name): \(.error_str
 # modules that cannot run in the upstream image either, each with a reason
 unexpected=$(cut -d: -f1 "$work/cannot-run.txt" | grep -vxFf <(sed 's/[[:space:]]*#.*//; /^$/d' "$here/cephadm-cannot-run.txt") || true)
 [ -z "$unexpected" ] || { echo "mgr modules that cannot run: $unexpected"; exit 1; }
-! tbx ceph health detail | grep -E 'MGR_MODULE_(ERROR|DEPENDENCY)'
+# not `! cmd`: set -e ignores a negated command
+health=$(tbx ceph health detail)
+if grep -E 'MGR_MODULE_(ERROR|DEPENDENCY)' <<<"$health"; then echo "mgr module errors in the health"; exit 1; fi
 endstep
 
 step "rados bench"
@@ -226,6 +228,9 @@ tpl=$(tbx ceph config-key get mgr/cephadm/blink_device_light_cmd)
 echo "template: $tpl"
 rendered=$(tbx python3 -c 'import sys, jinja2; print(jinja2.Template(sys.argv[1]).render(on=True, ident_fault="ident", dev="sdb", path="/dev/sdb"))' "$tpl")
 [ "$rendered" = "/usr/libexec/ceph-nix/device-light on ident '/dev/sdb'" ] || { echo "unexpected rendering: $rendered"; exit 1; }
+# a device without a by-path link (the mgr's DeviceLightLoc has path='') renders as the bare kernel name
+rendered=$(tbx python3 -c 'import sys, jinja2; print(jinja2.Template(sys.argv[1]).render(on=False, ident_fault="ident", dev="sdb", path=""))' "$tpl")
+[ "$rendered" = "/usr/libexec/ceph-nix/device-light off ident 'sdb'" ] || { echo "unexpected rendering: $rendered"; exit 1; }
 sudo truncate -s 256M /mnt/blink.img
 bdev=$(sudo losetup -f --show /mnt/blink.img)
 bname=${bdev#/dev/}
@@ -252,7 +257,8 @@ blinkers_are 1
 [ "$(tbx ceph orch ps --daemon-type container -f json | count_json)" = 1 ]
 light off ident "$bdev"
 wait_for 180 "blinker gone" blinkers_are 0
-# the service listing lags behind the container (a silent failure here in 2 of 4 runs)
+# The listing lags the container: `orch rm` only marks the spec deleted; the serve loop removes the daemon, and purges
+# the spec in a later pass, once no daemon is left (serve.py _purge_deleted_services).
 services_are() { [ "$(services)" = "$1" ]; }
 wait_for 120 "no container service" services_are 0 || { tbx ceph orch ls container; exit 1; }
 r1=$(reads); sleep 5; r2=$(reads)
@@ -262,14 +268,33 @@ echo "reads of $bdev: $r1 -> $r2"
 light off ident "$bdev"
 # the mgr's own dispatch (ssh to the host, rendered template), when a device the mgr knows has a location
 devid=$(tbx ceph device ls -f json | jq -r '[.[] | select((.location | length) > 0)][0].devid // empty')
+all_blinkers() { sudo podman ps -q --filter name=container-blink-dev- | wc -l; }
+some_blinker() { [ "$(all_blinkers)" -ge 1 ]; }
+no_blinker() { [ "$(all_blinkers)" = 0 ]; }
+dispatch_failed() { # dispatch_failed on|off: the mgr's error, then the same command by hand for device-light's message
+	local loc
+	echo "::error::the mgr's dispatch of device light $1 failed"
+	tbx ceph log last 20 cephadm || true
+	loc=$(tbx ceph device ls -f json | jq -c --arg d "$devid" '.[] | select(.devid == $d) | .location[0]')
+	echo "location: $loc"
+	light "$1" ident "$(jq -r 'if (.path // "") != "" then .path else .dev end' <<<"$loc")" || true
+	exit 1
+}
 if [ -n "$devid" ]; then
+	# the orchestrator prints the blink command's result, or None when it raised (the error is only in the mgr log)
 	echo "ceph device light on $devid"
-	tbx ceph device light on "$devid" || echo "NOTE: device light on failed"
-	wait_for 60 "mgr-dispatched blinker" bash -c '[ "$(sudo podman ps -q --filter name=container-blink-dev- | wc -l)" -ge 1 ]' || echo "NOTE: no blinker from the mgr's dispatch"
-	tbx ceph device light off "$devid" --force || true
-	wait_for 120 "mgr-dispatched blinker gone" bash -c '[ "$(sudo podman ps -q --filter name=container-blink-dev- | wc -l)" = 0 ]'
+	out=$(tbx ceph device light on "$devid")
+	echo "$out"
+	grep -q 'Set ident light' <<<"$out" || dispatch_failed on
+	wait_for 120 "mgr-dispatched blinker" some_blinker || dispatch_failed on
+	out=$(tbx ceph device light off "$devid")
+	echo "$out"
+	grep -q 'Set ident light' <<<"$out" || dispatch_failed off
+	wait_for 180 "mgr-dispatched blinker gone" no_blinker || dispatch_failed off
 else
-	echo "NOTE: no device with a location; the mgr's dispatch was not exercised"
+	tbx ceph device ls
+	echo "no device with a location: the mgr's dispatch cannot be tested"
+	exit 1
 fi
 sudo losetup -d "$bdev"
 endstep

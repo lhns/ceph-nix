@@ -21,15 +21,21 @@ denied) echo "PERMISSION_DENIED: root needed " >&2; exit 13 ;;
 badpath) echo "INVALID_ARGUMENT: disk path is not a block device " >&2; exit 4 ;;
 esac
 SH
-# ceph: records the calls; the blinker service exists once applied and until removed
+# ceph: records the calls; the blinker's spec is stored once applied and until removed. Orch commands hang with
+# FAKE_ORCH=queued, as they do when run from within the mgr's own command (they still take effect).
 cat >"$tmp/bin/ceph" <<'SH'
 #!/usr/bin/env bash
 echo "ceph $*" >>"$CALLS"
 case "$*" in
-"orch host ls -f json") echo '[{"hostname":"node1"}]' ;;
-"orch ls container -f json") [ -e "$STATE" ] && echo '[{"service_name":"container.blink-dev-sdz"}]' || echo '[]' ;;
+"config-key get mgr/cephadm/inventory") echo '{"node1": {"hostname": "node1"}}' ;;
+"config-key get mgr/cephadm/spec.container.blink-dev-sdz") [ -e "$STATE" ] && echo '{"spec": {}}' || exit 2 ;;
+"config-key get "*) exit 2 ;;
 "orch apply -i "*) cp "${@: -1}" "$SPEC"; chmod a+r "$SPEC"; touch "$STATE" ;;
 "orch rm "*) rm -f "$STATE" ;;
+"orch "*) exit 22 ;;
+esac
+case "$*" in
+"orch "*) [ "${FAKE_ORCH:-}" != queued ] || { sleep 30 & wait; } ;;
 esac
 SH
 chmod +x "$tmp/bin/"*
@@ -40,7 +46,7 @@ run() {
 	local name=$1 lsm=$2 want=$3 rc=0
 	shift 3
 	: >"$tmp/calls"
-	$engine run --rm -v "$tmp:/t" -e CALLS=/t/calls -e STATE=/t/state -e SPEC=/t/spec -e FAKE_LSM="$lsm" \
+	$engine run --rm -v "$tmp:/t" -e CALLS=/t/calls -e STATE=/t/state -e SPEC=/t/spec -e FAKE_LSM="$lsm" 		-e FAKE_ORCH="${FAKE_ORCH:-}" -e ORCH_WAIT=3 \
 		-e CONTAINER_IMAGE=img:1 -e NODE_NAME=node1 -e PATH=/t/bin:/usr/bin \
 		--entrypoint /usr/libexec/ceph-nix/device-light "$image" "$@" >"$tmp/out" 2>&1 || rc=$?
 	if [ "$rc" != "$want" ]; then
@@ -87,6 +93,23 @@ check "bad path: no fallback" no_fallback
 run "other error: off fails" denied 13 off ident /dev/sdz
 check "other error off: no fallback" no_fallback
 run "usage error" ok 2 on bogus /dev/sdz
+
+# the mgr renders the bare kernel name when the device has no by-path link
+rm -f "$tmp/state"
+run "bare name: native" ok 0 on ident sdz
+check "bare name: lsmcli gets /dev/sdz" has 'lsmcli local-disk-ident-led-on --path /dev/sdz'
+run "bare name: blinker" nosupport 0 on ident sdz
+check "bare name: same service and device" bash -c "grep -q 'service_id: blink-dev-sdz' $tmp/spec && grep -q 'BLINK_DEV=/dev/sdz' $tmp/spec"
+run "bare name: off removes it" nosupport 0 off ident sdz
+check "bare name: rm called" has 'ceph orch rm container.blink-dev-sdz'
+
+# under the mgr's dispatch an orch command does not return until our caller has: on/off still succeed
+rm -f "$tmp/state"
+FAKE_ORCH=queued run "queued: on" nosupport 0 on ident /dev/sdz
+check "queued: said so" grep -q 'queued' "$tmp/out"
+check "queued: applied anyway" test -e "$tmp/state"
+FAKE_ORCH=queued run "queued: off" nosupport 0 off ident /dev/sdz
+check "queued: removed" test ! -e "$tmp/state"
 
 [ "$fails" = 0 ] || { echo "$fails failures"; exit 1; }
 echo "device-light decision logic OK"
