@@ -58,15 +58,17 @@ let
         version = ceph.version;
         extraPackages = [ ceph-iscsi ];
         # the cephadm orchestrator needs asyncssh; nixpkgs' mgr env lacks it
-        extraPython = with python.pkgs; [
-          asyncssh
-          python3-saml # dashboard SAML SSO; upstream's el9/el10 image has it
-          ceph-iscsi
-          # dashboard NVMe-oF client (mgr-dashboard Requires in ceph.spec.in); without them its imports fail silently
-          grpcio
-          grpcio-tools
-        ]
-        ++ lib.optional smbCtl python.pkgs.grpcio-reflection;
+        extraPython =
+          with python.pkgs;
+          [
+            asyncssh
+            python3-saml # dashboard SAML SSO; upstream's el9/el10 image has it
+            ceph-iscsi
+            # dashboard NVMe-oF client (mgr-dashboard Requires in ceph.spec.in); without them its imports fail silently
+            grpcio
+            grpcio-tools
+          ]
+          ++ lib.optional smbCtl python.pkgs.grpcio-reflection;
       };
     };
 
