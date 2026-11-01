@@ -32,6 +32,10 @@ jobs:
           tbx ceph nfs cluster create nfs1 "1 $(hostname)"
           wait_for 300 "nfs running" daemon_running nfs
           tbx ceph nfs export create cephfs --cluster-id nfs1 --pseudo-path /cephfs --fsname cephfs
-          for i in $(seq 12); do sleep 30; echo "== $((i*30))s"; tbx ceph health detail; done
+          for i in $(seq 2); do sleep 30; echo "== $((i*30))s"; tbx ceph health detail; done
           tbx ceph orch ps --daemon-type nfs
           tbx ceph service dump
+          echo "== mgr fail"
+          tbx ceph config get mgr mgr/cephadm/stray_daemon_check_interval || true
+          tbx ceph mgr fail
+          for i in 1 2 3 4; do sleep 45; echo "== after fail $((i*45))s"; tbx ceph health detail || true; done
