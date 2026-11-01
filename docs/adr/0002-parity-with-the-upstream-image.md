@@ -17,8 +17,18 @@ Parity is checked in two dimensions:
    sgdisk, partprobe and the lvm tools.
 2. Build flags: the el9 `ceph.spec.in` bconds are compared with our `cmakeFlags`.
 
-`tests/parity.sh` enforces (1) with an allowlist. Every accepted deviation is a line in
+3. Python environment: every distribution installed in upstream's `python3` (the mgr's), and every top-level
+   module no distribution owns, is present in ours (`tests/pydists.py`, names normalized). A dependency of the mgr
+   that is missing makes its modules fail silently (the dashboard's NVMe-oF client imports `grpc` inside
+   `try/except ImportError`), which the module-import check cannot see. The dashboard client import is checked too.
+
+`tests/parity.sh` enforces (1) and (3) with an allowlist. Every accepted deviation is a line in
 `tests/parity-allow.txt` with its reason, so a deviation is reviewed in the diff that adds it.
+
+Accepted deviations of (3), in `tests/parity-allow.txt` as `pydist:`/`pymod:` entries: the python bindings of dnf,
+rpm and libselinux (no package manager or SELinux policy tooling in a Nix image); EL's transitive python dependencies
+that nothing in Ceph imports (cloudpickle, ply, urwid, kmod, cachetools, rsa, chardet, pysocks, toml, dbus-python,
+systemd-python, backports-tarfile); ceph-iscsi, which is installed without dist-info metadata.
 
 ## Consequences
 

@@ -6,6 +6,9 @@
 # tests/parity-pending.txt and only tolerated with PARITY_PENDING_OK=1. Both files: one shell glob per line, then
 # "# reason, ADR 0002".
 # PARITY_USERLAND=el10 for the Umbrella image (Rocky 10; default el9, CentOS Stream 9), see tests/parity-allow.txt.
+# Also the Python the mgr runs on (tests/pydists.py): every distribution installed in upstream's python3, and every
+# top-level module no distribution owns, is present in ours ("pydist:<name>" / "pymod:<name>" entries, normalized
+# names), same allowlist. And the dashboard's optional gRPC/NVMe-oF client imports, which fails silently otherwise.
 # Also: `ceph -v` is EXPECTED_MAJOR_MINOR, and every mgr module that imports in upstream's image imports in ours.
 set -uo pipefail
 up=$1 ours=$2 expected=$3
@@ -33,6 +36,17 @@ echo "upstream entries: $(wc -l <"$work/upstream.txt")"
 echo "upstream mgr files: $(grep -c "^/usr/share/ceph/mgr/" "$work/upstream.txt"); dashboard frontend files: $(grep -c "^/usr/share/ceph/mgr/dashboard/frontend/" "$work/upstream.txt")"
 # upstream's /usr/sbin may be /usr/bin (merged usr): an entry exists if it does in either place
 run "$ours" 'while read -r p; do [ -e "$p" ] || echo "$p"; done' <"$work/upstream.txt" | sort -u >"$work/missing.txt"
+
+# --- python distributions and modules (appended to the missing entries, so allow/stale handling is shared)
+pyrun() { local img=$1; shift; docker run --rm -e PYTHONDONTWRITEBYTECODE=1 -v "$here/pydists.py:/pydists.py:ro" 	-v "$work/pynames.txt:/pynames.txt:ro" --entrypoint python3 "$img" /pydists.py "$@" </dev/null; }
+: >"$work/pynames.txt"
+pyrun "$up" enum | sort -u >"$work/pyupstream.txt" || fail "cannot list upstream's python distributions"
+echo "upstream python: $(grep -c '^pydist:' "$work/pyupstream.txt") distributions, $(grep -c '^pymod:' "$work/pyupstream.txt") unowned modules"
+[ -s "$work/pyupstream.txt" ] || fail "no python distribution found in upstream's image"
+cp "$work/pyupstream.txt" "$work/pynames.txt"
+pyrun "$ours" missing /pynames.txt | sort -u >"$work/pymissing.txt" || fail "cannot check python distributions in our image"
+cat "$work/pymissing.txt" >>"$work/missing.txt"
+sort -u -o "$work/missing.txt" "$work/missing.txt"
 
 # Entries tagged [el9]/[el10] (the upstream image's userland) are not stale-checked for the other one.
 userland=${PARITY_USERLAND:-el9}
@@ -129,6 +143,31 @@ done < <(grep '^FAIL' "$work/mgr-ours.txt")
 while read -r _ name _; do
 	grep -q "^OK $name\$" "$work/mgr-ours.txt" || fail "mgr module $name is missing in ours"
 done < <(grep '^OK' "$work/mgr-up.txt")
+
+# --- dashboard NVMe-oF client: its imports sit in try/except ImportError, so a missing grpc or protobuf shows up only as
+# a mgr log line and a dashboard without NVMe-oF
+cat >"$work/nvmeof.py" <<'PY'
+import sys, types
+
+class Stub(types.ModuleType):
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        cls = type(name, (object,), {})
+        setattr(self, name, cls)
+        return cls
+
+sys.modules["ceph_module"] = Stub("ceph_module")
+sys.path.insert(0, "/usr/share/ceph/mgr")
+import dashboard.services.nvmeof_client as c
+print("grpc" if c.grpc is not None else "no-grpc")
+PY
+for k in up ours; do
+	img=${!k}
+	r=$(docker run --rm -i -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python3 "$img" - <"$work/nvmeof.py" 2>&1 | tail -n1)
+	echo "dashboard nvmeof_client ($k): $r"
+	[ "$r" = grpc ] || fail "dashboard.services.nvmeof_client has no grpc in $k image: $r"
+done
 
 echo "RESULT parity -> $([ $rc -eq 0 ] && echo OK || echo FAILED)"
 exit $rc

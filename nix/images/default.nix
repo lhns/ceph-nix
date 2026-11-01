@@ -3,6 +3,7 @@
 # once per derivation and caches (ADR 0010); no flake check depends on it.
 { pkgs, self }:
 let
+  inherit (pkgs) lib;
   mkCephImage = import ./ceph.nix { inherit pkgs; };
   rev = self.rev or self.dirtyRev or "dirty";
 
@@ -13,6 +14,7 @@ let
       ceph,
       cephRef,
       ganeshaVersion,
+      smbCtl ? false, # python3-ceph-smb-ctl (gRPC reflection) is a 21.x package
     }:
     let
       python = ceph.pythonEnv.python;
@@ -56,11 +58,17 @@ let
         version = ceph.version;
         extraPackages = [ ceph-iscsi ];
         # the cephadm orchestrator needs asyncssh; nixpkgs' mgr env lacks it
-        extraPython = with python.pkgs; [
-          asyncssh
-          python3-saml # dashboard SAML SSO; upstream's el9/el10 image has it
-          ceph-iscsi
-        ];
+        extraPython =
+          with python.pkgs;
+          [
+            asyncssh
+            python3-saml # dashboard SAML SSO; upstream's el9/el10 image has it
+            ceph-iscsi
+            # dashboard NVMe-oF client (mgr-dashboard Requires in ceph.spec.in); without them its imports fail silently
+            grpcio
+            grpcio-tools
+          ]
+          ++ lib.optional smbCtl python.pkgs.grpcio-reflection;
       };
     };
 
@@ -89,6 +97,7 @@ let
     ceph = ceph-umbrella;
     cephRef = "umbrella"; # upstream's CEPH_REF for 21.x
     ganeshaVersion = "9.16";
+    smbCtl = true;
   };
 in
 named "tentacle" tentacle
