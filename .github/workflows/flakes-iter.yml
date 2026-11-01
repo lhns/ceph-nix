@@ -43,10 +43,7 @@ jobs:
       fail-fast: false
       matrix:
         track: [tentacle, umbrella]
-        rep: [1, 2, 3]
-        exclude:
-          - track: umbrella
-            rep: 3
+        rep: [1, 2]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -64,39 +61,4 @@ jobs:
         with:
           name: cephadm-logs-${{ matrix.track }}-${{ matrix.rep }}
           path: cephadm-logs
-          retention-days: 3
-
-  # the e2e change is in the harness only: main's images (run 41285330462)
-  e2e:
-    strategy:
-      fail-fast: false
-      matrix:
-        track: [tentacle, umbrella]
-        rep: [1, 2]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 350
-    steps:
-      - uses: actions/checkout@v7
-      - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
-      - uses: actions/setup-go@v6
-        with:
-          go-version: stable
-      - uses: actions/download-artifact@v8
-        with:
-          name: image-${{ matrix.track }}
-          run-id: 41285330462
-          github-token: ${{ github.token }}
-      - id: load
-        run: |
-          zstd -dc image.tar.zst | docker load | tee load.log
-          echo "tag=$(sed -n 's/^Loaded image: //p' load.log)" >>"$GITHUB_OUTPUT"
-      - name: ceph-csi acceptance e2e
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: tests/e2e.sh "${{ steps.load.outputs.tag }}"
-      - if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: e2e-logs-${{ matrix.track }}-${{ matrix.rep }}
-          path: /tmp/acceptance-e2e-logs/
           retention-days: 3

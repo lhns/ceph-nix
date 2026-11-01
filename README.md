@@ -63,8 +63,10 @@ The fallback needs a working `ceph` CLI inside `cephadm shell` on that host, i.e
 `_admin` label have one).
 
 For a disk without a `/dev/disk/by-path` link cephadm passes the bare kernel name (`sda`); `device-light` takes either.
-`ceph device light on` prints the command's result, or `None` when it failed: the error is then in the mgr log
-(`ceph log last cephadm`).
+The mgr runs its module commands one at a time, so the fallback's `ceph orch apply`/`rm` cannot complete while the
+`device light` command that runs it is still going: `device-light` sends them without waiting, and the blinker starts
+(or stops) a few seconds after `device light` returns (`ceph orch ls container`). `ceph device light on` prints the
+command's result, or `None` when it failed: the error is then in the mgr log (`ceph log last cephadm`).
 
 ## OpenCAS
 
