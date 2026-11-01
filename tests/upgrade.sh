@@ -277,8 +277,10 @@ orch_ps | jq -r '.[] | [.daemon_name, .version, .status_desc, .container_image_n
 bad=$(jq -r --arg id "$want_id" '.[] | select(((.container_image_id // "") | ltrimstr("sha256:")) != $id or ((.container_image_name // "") | contains("ceph-nix") | not)) | "\(.daemon_name) \(.container_image_id) \(.container_image_name)"' "$art/after/orch-ps.json")
 [ -z "$bad" ] || { echo "daemons not on our image:"; echo "$bad"; exit 1; }
 [ "$(jq length "$art/after/orch-ps.json")" -ge 8 ]
-# ceph versions: a single version, ours
-[ "$(jq '.overall | length' "$art/after/versions.json")" = 1 ]
+# ceph versions: a single version, ours. The service map keeps the old rgw daemon (its previous process) listed with
+# the old version until its beacon times out, so give it time (seen on 20.2.4 -> 21.2.0, upstream's images too).
+one_version() { tbx ceph versions -f json >"$art/after/versions.json" && [ "$(jq '.overall | length' "$art/after/versions.json")" = 1 ]; }
+wait_for 300 "a single ceph version" one_version || { cat "$art/after/versions.json"; exit 1; }
 got_version=$(jq -r '.overall | keys[0]' "$art/after/versions.json" | sed -E 's/^(ceph version [^ ]+ \([0-9a-f]+\)).*/\1/')
 [ "$got_version" = "$want_version" ] || { echo "version $got_version != $want_version"; exit 1; }
 [ "$(tbx ceph config get mgr container_image | tr -d '\r')" != "$from_image" ]
