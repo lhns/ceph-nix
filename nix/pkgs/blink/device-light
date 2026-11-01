@@ -2,7 +2,8 @@
 # Disk locate LED for cephadm's `ceph orch device light` (mgr/cephadm blink_device_light_cmd), run by cephadm in a
 # privileged container of this image. Native method first (libstoragemgmt); when the disk does not support LED control,
 # ident falls back to blinking the activity LED with blink-disk.
-#   device-light on|off ident|fault PATH
+#   device-light on|off ident|fault PATH     PATH may be a bare kernel name (sda): cephadm passes the device's name
+#                                            when it knows no /dev/disk/by-path link for it ({{ path or dev }})
 #   device-light install            set the cephadm command template to call this (see README)
 # The fallback must outlive the short-lived container cephadm runs this in, so the blinker is a cephadm-managed
 # container service (container.blink-<dev>, this image, privileged) placed on this host; `off` removes it.
@@ -91,6 +92,7 @@ on | off)
 	[ $# = 3 ] || die "usage: device-light on|off ident|fault PATH" 2
 	kind=$2 path=$3
 	case $kind in ident | fault) ;; *) die "unknown light type $kind" 2 ;; esac
+	case $path in /*) ;; *) path=/dev/$path ;; esac
 	native "$kind" "$cmd" "$path"
 	if [ "$native_rc" = 0 ]; then
 		log "$kind $cmd for $path: native (lsmcli)"

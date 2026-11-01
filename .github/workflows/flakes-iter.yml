@@ -1,0 +1,102 @@
+# Temporary (branch test-flakes): only the jobs the flake fixes touch, repeated. Removed before merge.
+name: flakes-iter
+on:
+  push:
+    branches: [test-flakes]
+permissions:
+  contents: read
+  actions: read
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [tentacle, umbrella]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            system-features = nixos-test benchmark big-parallel kvm
+      - uses: ./.github/actions/ceph-umbrella
+        if: matrix.track == 'umbrella'
+      - name: nix build
+        run: nix build -L --no-link --print-out-paths ".#ceph-image-${{ matrix.track }}" | tee stream.path
+      - run: $(cat stream.path) | zstd -T0 -3 -o image.tar.zst
+      - uses: actions/upload-artifact@v7
+        with:
+          name: image-${{ matrix.track }}
+          path: image.tar.zst
+          retention-days: 3
+          compression-level: 0
+
+  cephadm:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [tentacle, umbrella]
+        rep: [1, 2, 3]
+        exclude:
+          - track: umbrella
+            rep: 3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: image-${{ matrix.track }}
+      - name: cephadm.sh
+        env:
+          ARTIFACT_DIR: ${{ github.workspace }}/cephadm-logs
+          ALLOWED_WARNINGS: ${{ matrix.track == 'umbrella' && 'CEPHADM_STRAY_DAEMON' || '' }}
+        run: tests/cephadm.sh image.tar.zst
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cephadm-logs-${{ matrix.track }}-${{ matrix.rep }}
+          path: cephadm-logs
+          retention-days: 3
+
+  # the e2e change is in the harness only: main's images (run 41285330462)
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [tentacle, umbrella]
+        rep: [1, 2]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - uses: actions/download-artifact@v8
+        with:
+          name: image-${{ matrix.track }}
+          run-id: 41285330462
+          github-token: ${{ github.token }}
+      - id: load
+        run: |
+          zstd -dc image.tar.zst | docker load | tee load.log
+          echo "tag=$(sed -n 's/^Loaded image: //p' load.log)" >>"$GITHUB_OUTPUT"
+      - name: ceph-csi acceptance e2e
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tests/e2e.sh "${{ steps.load.outputs.tag }}"
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-logs-${{ matrix.track }}-${{ matrix.rep }}
+          path: /tmp/acceptance-e2e-logs/
+          retention-days: 3

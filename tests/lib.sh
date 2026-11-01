@@ -1,6 +1,10 @@
 # shellcheck shell=bash
 # Helpers shared by cephadm.sh and upgrade.sh. Callers set: tool_image (image the toolbox/krbd helpers run from), art, work.
 
+# set -e ends the script without a word when a check like `[ "$n" = 0 ]` fails: name the command and the line. Only the
+# main shell reports; a failing subshell (command substitution, pipeline) shows up through the command that ran it.
+trap '_rc=$?; [ "$BASHPID" != $$ ] || echo "::error::${BASH_SOURCE[0]##*/}:$LINENO${FUNCNAME:+ (in ${FUNCNAME[0]}, called at line ${BASH_LINENO[0]})}: $BASH_COMMAND (exit $_rc)" >&2' ERR
+
 step() { echo "::group::$*"; echo ">>> $*"; }
 endstep() { echo "::endgroup::"; }
 
@@ -71,6 +75,7 @@ mount_cephfs() {
 # Needs art and work.
 collect() {
 	set +e
+	trap - ERR
 	echo "::group::collecting logs into $art"
 	sudo podman ps -a >"$art/podman-ps.txt" 2>&1
 	if [ -x "$work/cephadm" ]; then

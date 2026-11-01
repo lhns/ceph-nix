@@ -88,5 +88,14 @@ run "other error: off fails" denied 13 off ident /dev/sdz
 check "other error off: no fallback" no_fallback
 run "usage error" ok 2 on bogus /dev/sdz
 
+# the mgr renders the bare kernel name when the device has no by-path link
+rm -f "$tmp/state"
+run "bare name: native" ok 0 on ident sdz
+check "bare name: lsmcli gets /dev/sdz" has 'lsmcli local-disk-ident-led-on --path /dev/sdz'
+run "bare name: blinker" nosupport 0 on ident sdz
+check "bare name: same service and device" bash -c "grep -q 'service_id: blink-dev-sdz' $tmp/spec && grep -q 'BLINK_DEV=/dev/sdz' $tmp/spec"
+run "bare name: off removes it" nosupport 0 off ident sdz
+check "bare name: rm called" has 'ceph orch rm container.blink-dev-sdz'
+
 [ "$fails" = 0 ] || { echo "$fails failures"; exit 1; }
 echo "device-light decision logic OK"

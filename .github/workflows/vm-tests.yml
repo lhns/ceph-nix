@@ -7,6 +7,7 @@ on:
   # Skip pushes that cannot change what these VMs run. No concurrency cancelling: a superseded run is cancelled by
   # hand, never automatically.
   push:
+    branches-ignore: [test-flakes] # temporary: iteration branch
     paths-ignore: &skip
       - docs/**
       - "**.md"

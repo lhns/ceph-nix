@@ -62,6 +62,10 @@ cephadm shell -- /usr/libexec/ceph-nix/device-light install
 The fallback needs a working `ceph` CLI inside `cephadm shell` on that host, i.e. an admin keyring there (hosts with the
 `_admin` label have one).
 
+For a disk without a `/dev/disk/by-path` link cephadm passes the bare kernel name (`sda`); `device-light` takes either.
+`ceph device light on` prints the command's result, or `None` when it failed: the error is then in the mgr log
+(`ceph log last cephadm`).
+
 ## OpenCAS
 
 The Open CAS packages and the `services.opencas` module live in [lhns/opencas-nix](https://github.com/lhns/opencas-nix)
