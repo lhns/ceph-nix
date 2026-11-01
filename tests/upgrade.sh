@@ -310,8 +310,21 @@ wait_for 120 "nfs mount" mount_nfs || {
 # a restarted ganesha is in its grace period for a while; reads must come back within a few minutes, never hang
 nfs_read() { (cd /mnt/nfs/nfsdata && sudo timeout -s KILL 20 md5sum -c "$work/nfs.md5"); }
 nfs_failed=
+# Across Tentacle -> Umbrella the old ganesha node id (rank "0") stays in the grace table as needing grace, so the
+# grace period never ends. Upstream's own images do the same (the upstream control leg); the admin removes the node.
+# NFS_GRACE_REMOVE_NODE=0 applies that fix after a failed read, and says so in the summary.
 if ! wait_for 300 "nfs read" nfs_read; then
-	nfs_failed=1
+	if [ -n "${NFS_GRACE_REMOVE_NODE-}" ]; then
+		echo "NFS grace table before the fix:"
+		tbx ganesha-rados-grace --pool .nfs --ns nfs1 --cephconf /etc/ceph/ceph.conf || true
+		tbx ganesha-rados-grace --pool .nfs --ns nfs1 --cephconf /etc/ceph/ceph.conf remove "$NFS_GRACE_REMOVE_NODE" || true
+		summary "NFS: unreadable after the upgrade until node $NFS_GRACE_REMOVE_NODE was removed from the grace table"
+		wait_for 300 "nfs read after removing the old node" nfs_read || nfs_failed=1
+	else
+		nfs_failed=1
+	fi
+fi
+if [ -n "$nfs_failed" ]; then
 	summary "NFS: data unreadable after the upgrade (ganesha $(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].version'))"
 	tbx ceph orch ps --daemon-type nfs || true
 	tbx rados -p .nfs -N nfs1 ls || true
@@ -337,7 +350,8 @@ for want in "osd osd_scrub_sleep 0.200000" "mon mon_allow_pool_delete true" "glo
 	[ "$got" = "$val" ] || { echo "config $sec/$name: $got, want $val"; exit 1; }
 done
 # every explicitly set option from before is still there with the same value (cephadm's own tuning excluded)
-keep='[.[] | select(.name != "container_image" and .name != "osd_memory_target") | [.section, .name, .value]]'
+# (cephadm's own container_image, osd_memory_target and, across a major, its store migration counter)
+keep='[.[] | select(.name != "container_image" and .name != "osd_memory_target" and .name != "mgr/cephadm/migration_current") | [.section, .name, .value]]'
 lost=$(jq -n --argjson a "$(jq "$keep" "$art/before/config.json")" --argjson b "$(jq "$keep" "$art/after/config.json")" '$a - $b | .[] | @tsv' -r)
 [ -z "$lost" ] || { echo "config entries lost or changed:"; echo "$lost"; exit 1; }
 jq -r '.enabled_modules[]' "$art/before/modules.json" | sort >"$work/mods.before"
