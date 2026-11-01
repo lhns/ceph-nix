@@ -141,6 +141,7 @@ jobs:
       - name: cephadm.sh
         env:
           ARTIFACT_DIR: ${{ github.workspace }}/cephadm-logs
+          ALLOWED_WARNINGS: ${{ inputs.track == 'umbrella' && 'CEPHADM_STRAY_DAEMON' || '' }}
         run: tests/cephadm.sh image.tar.zst
       - if: failure()
         uses: actions/upload-artifact@v7

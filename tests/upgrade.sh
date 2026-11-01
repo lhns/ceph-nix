@@ -12,7 +12,8 @@
 #      ARTIFACT_DIR     where logs go (default ./upgrade-logs); before/ and after/ hold the compared state
 # Health: strictly HEALTH_OK before the upgrade. Afterwards only ALLOWED_WARNINGS (default: the two
 # AUTH_INSECURE_KEYS_* checks cephadm's Tentacle upgrade leaves behind after rotating daemon keys; the admin clears
-# them once old-style keys are gone). Transient UPGRADE_NO_STANDBY_MGR is only logged.
+# them once old-style keys are gone; and CEPHADM_STRAY_DAEMON, which Ceph 21.2.0 raises for its own nfs.0 ganesha
+# registration, upstream's image included). Transient UPGRADE_NO_STANDBY_MGR is only logged.
 # Mgr modules: no module may be unable to run after the upgrade that could run before.
 set -Eeuo pipefail
 from=$1
@@ -20,7 +21,7 @@ tarball=$(realpath "$2")
 here=$(cd "$(dirname "$0")" && pwd)
 art=${ARTIFACT_DIR:-$PWD/upgrade-logs}
 limit=${UPGRADE_TIMEOUT:-3000}
-allowed=${ALLOWED_WARNINGS-AUTH_INSECURE_KEYS_ALLOWED AUTH_INSECURE_KEYS_CREATABLE}
+allowed=${ALLOWED_WARNINGS-AUTH_INSECURE_KEYS_ALLOWED AUTH_INSECURE_KEYS_CREATABLE CEPHADM_STRAY_DAEMON}
 work=$(sudo mktemp -d /mnt/upgrade-test.XXXX)
 sudo chown "$USER" "$work"
 mkdir -p "$art/before" "$art/after"
