@@ -232,7 +232,11 @@ if ! wait_for 30 "nfs live export reload" mount_nfs; then
 	wait_for 120 "nfs mount" mount_nfs
 fi
 put_files /mnt/nfs/nfsdata "$work/nfs.md5"
-# stays mounted across the upgrade like a production client; checked, not gating, afterwards
+# On the NFS_STALE_GRACE legs the mount stays up across the upgrade like a production client (checked, not gating,
+# afterwards). Not on the others: with it kept, the Tentacle leg hung twice in 3 runs on an OSD container stuck in D
+# state during the mon/osd restart check (cause not found; never without it).
+keep_mount=${NFS_STALE_GRACE-}
+[ -n "$keep_mount" ] || sudo umount /mnt/nfs
 # config options and mgr modules that must survive the switch
 tbx ceph config set osd osd_scrub_sleep 0.2
 tbx ceph config set mon mon_allow_pool_delete true
@@ -336,13 +340,15 @@ check_files /mnt/cephfs/fsdata "$work/cephfs.md5"
 sudo umount /mnt/cephfs
 # a restarted ganesha is in its grace period for a while; reads must come back within a few minutes, never hang
 nfs_read() { (cd /mnt/nfs/nfsdata && sudo timeout -s KILL 20 md5sum -c "$work/nfs.md5"); }
-if wait_for 180 "nfs read on the mount kept across the upgrade" nfs_read; then
-	summary "NFS: the mount kept across the upgrade reads its data"
-else
-	summary "NFS: the mount kept across the upgrade is unreadable (not gating; a fresh mount must work)"
-	sudo timeout 20 dmesg | grep -iE 'nfs|rpc' | tail -20 || true
+if [ -n "$keep_mount" ]; then
+	if wait_for 180 "nfs read on the mount kept across the upgrade" nfs_read; then
+		summary "NFS: the mount kept across the upgrade reads its data"
+	else
+		summary "NFS: the mount kept across the upgrade is unreadable (not gating; a fresh mount must work)"
+		sudo timeout 20 dmesg | grep -iE 'nfs|rpc' | tail -20 || true
+	fi
+	sudo timeout -s KILL 60 umount /mnt/nfs || sudo umount -f -l /mnt/nfs || true
 fi
-sudo timeout -s KILL 60 umount /mnt/nfs || sudo umount -f -l /mnt/nfs || true
 wait_for 120 "nfs mount" mount_nfs || {
 	echo "nfs mount failed after the upgrade; ganesha state:"
 	tbx ceph nfs cluster info nfs1 || true
