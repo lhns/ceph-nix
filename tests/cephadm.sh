@@ -252,7 +252,9 @@ blinkers_are 1
 [ "$(tbx ceph orch ps --daemon-type container -f json | count_json)" = 1 ]
 light off ident "$bdev"
 wait_for 180 "blinker gone" blinkers_are 0
-[ "$(services)" = 0 ]
+# the service listing lags behind the container (a silent failure here in 2 of 4 runs)
+services_are() { [ "$(services)" = "$1" ]; }
+wait_for 120 "no container service" services_are 0 || { tbx ceph orch ls container; exit 1; }
 r1=$(reads); sleep 5; r2=$(reads)
 echo "reads of $bdev: $r1 -> $r2"
 # blinking reads ~15k/s; stray reads (udev, device scans) are a handful
