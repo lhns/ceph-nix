@@ -1,6 +1,6 @@
 name: release
-# Releases the image ceph.yml just tested (ADR 0003): ghcr.io/lhns/ceph-nix:v<ver>-<n>, only when the image differs
-# from the newest v<ver>-*. Publishing is off until the repo variable PUBLISH is 'true'; without it this is a dry run
+# Releases the images ceph.yml just tested, one per Ceph track (ADR 0003): ghcr.io/lhns/ceph-nix:v<ver>-<n>, only when
+# the image differs from the newest v<ver>-* of its own version. Publishing is off until the repo variable PUBLISH is 'true'; without it this is a dry run
 # that prints the plan to the step summary.
 on:
   workflow_run:
@@ -42,10 +42,13 @@ jobs:
       fail-fast: false
       matrix:
         # One entry per released track. The Ceph version comes from the image itself (its version label).
-        # The Umbrella track (`ceph-image`, v21.2.0-<n>) is added here and to publish's matrix when it reaches main.
+        # Umbrella's Ceph comes from the ceph-umbrella action (a from-source build, cached, ADR 0010).
         include:
           - package: ceph-image-tentacle
             companions: tcmu-runner-tentacle ceph-iscsi-tentacle libstoragemgmt-tentacle
+          - package: ceph-image-umbrella
+            companions: tcmu-runner-umbrella ceph-iscsi-umbrella libstoragemgmt-umbrella nfs-ganesha-umbrella
+            ceph-umbrella: true
     steps:
       - uses: actions/checkout@v7
         with:
@@ -55,6 +58,8 @@ jobs:
         with:
           extra_nix_config: |
             system-features = nixos-test benchmark big-parallel kvm
+      - uses: ./.github/actions/ceph-umbrella
+        if: matrix.ceph-umbrella
       - name: nix build
         run: nix build -L --no-link --print-out-paths ".#${{ matrix.package }}" | tee stream.path
       - name: stream the image twice
@@ -151,7 +156,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [ceph-image-tentacle] # keep in step with plan's matrix
+        package: [ceph-image-tentacle, ceph-image-umbrella] # keep in step with plan's matrix
     steps:
       - uses: actions/download-artifact@v8
         with:

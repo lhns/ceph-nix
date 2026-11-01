@@ -11,7 +11,7 @@
   # Run the pinned upstream release instead of our image. It needs AVX2, so the CPU is not masked, and the
   # cephadm of this repo (Ceph 20) is not the image's; best effort, not run in CI.
   upstream ? false,
-  # Which of the flake's Ceph tracks to run: tentacle or umbrella (not run in CI: its Ceph is not built there).
+  # Which of the flake's Ceph tracks to run: tentacle or umbrella.
   track ? "tentacle",
 }:
 

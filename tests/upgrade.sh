@@ -12,7 +12,8 @@
 #      ARTIFACT_DIR     where logs go (default ./upgrade-logs); before/ and after/ hold the compared state
 # Health: strictly HEALTH_OK before the upgrade. Afterwards only ALLOWED_WARNINGS (default: the two
 # AUTH_INSECURE_KEYS_* checks cephadm's Tentacle upgrade leaves behind after rotating daemon keys; the admin clears
-# them once old-style keys are gone). Transient UPGRADE_NO_STANDBY_MGR is only logged.
+# them once old-style keys are gone; and CEPHADM_STRAY_DAEMON, which Ceph 21.2.0 raises for its own nfs.0 ganesha
+# registration, upstream's image included). Transient UPGRADE_NO_STANDBY_MGR is only logged.
 # Mgr modules: no module may be unable to run after the upgrade that could run before.
 set -Eeuo pipefail
 from=$1
@@ -20,7 +21,7 @@ tarball=$(realpath "$2")
 here=$(cd "$(dirname "$0")" && pwd)
 art=${ARTIFACT_DIR:-$PWD/upgrade-logs}
 limit=${UPGRADE_TIMEOUT:-3000}
-allowed=${ALLOWED_WARNINGS-AUTH_INSECURE_KEYS_ALLOWED AUTH_INSECURE_KEYS_CREATABLE}
+allowed=${ALLOWED_WARNINGS-AUTH_INSECURE_KEYS_ALLOWED AUTH_INSECURE_KEYS_CREATABLE CEPHADM_STRAY_DAEMON}
 work=$(sudo mktemp -d /mnt/upgrade-test.XXXX)
 sudo chown "$USER" "$work"
 mkdir -p "$art/before" "$art/after"
@@ -277,8 +278,10 @@ orch_ps | jq -r '.[] | [.daemon_name, .version, .status_desc, .container_image_n
 bad=$(jq -r --arg id "$want_id" '.[] | select(((.container_image_id // "") | ltrimstr("sha256:")) != $id or ((.container_image_name // "") | contains("ceph-nix") | not)) | "\(.daemon_name) \(.container_image_id) \(.container_image_name)"' "$art/after/orch-ps.json")
 [ -z "$bad" ] || { echo "daemons not on our image:"; echo "$bad"; exit 1; }
 [ "$(jq length "$art/after/orch-ps.json")" -ge 8 ]
-# ceph versions: a single version, ours
-[ "$(jq '.overall | length' "$art/after/versions.json")" = 1 ]
+# ceph versions: a single version, ours. The service map keeps the old rgw daemon (its previous process) listed with
+# the old version until its beacon times out, so give it time (seen on 20.2.4 -> 21.2.0, upstream's images too).
+one_version() { tbx ceph versions -f json >"$art/after/versions.json" && [ "$(jq '.overall | length' "$art/after/versions.json")" = 1 ]; }
+wait_for 300 "a single ceph version" one_version || { cat "$art/after/versions.json"; exit 1; }
 got_version=$(jq -r '.overall | keys[0]' "$art/after/versions.json" | sed -E 's/^(ceph version [^ ]+ \([0-9a-f]+\)).*/\1/')
 [ "$got_version" = "$want_version" ] || { echo "version $got_version != $want_version"; exit 1; }
 [ "$(tbx ceph config get mgr container_image | tr -d '\r')" != "$from_image" ]
@@ -307,9 +310,19 @@ wait_for 120 "nfs mount" mount_nfs || {
 # a restarted ganesha is in its grace period for a while; reads must come back within a few minutes, never hang
 nfs_read() { (cd /mnt/nfs/nfsdata && sudo timeout -s KILL 20 md5sum -c "$work/nfs.md5"); }
 nfs_failed=
+# Across Tentacle -> Umbrella the old ganesha node (id "0") stays in the grace table needing grace, so the new ganesha
+# (node0) never lifts it ("Attempt to lift grace failed"; seen with upstream's own images in the control leg, which
+# fails identically) and reads hang. NFS_UNREADABLE_OK=1 logs that instead of failing, for those legs only.
 if ! wait_for 300 "nfs read" nfs_read; then
-	nfs_failed=1
-	summary "NFS: data unreadable after the upgrade (ganesha $(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].version'))"
+	if [ -n "${NFS_UNREADABLE_OK-}" ]; then
+		summary "NFS: unreadable after the upgrade (known: upstream's 20.2.4 -> 21.2.0 does the same); not gating"
+		nfs_unreadable=1
+	else
+		nfs_failed=1
+	fi
+fi
+if [ -n "$nfs_failed" ] || [ -n "${nfs_unreadable-}" ]; then
+	[ -z "$nfs_failed" ] || summary "NFS: data unreadable after the upgrade (ganesha $(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].version'))"
 	tbx ceph orch ps --daemon-type nfs || true
 	tbx rados -p .nfs -N nfs1 ls || true
 	tbx ganesha-rados-grace --pool .nfs --ns nfs1 --cephconf /etc/ceph/ceph.conf || true
@@ -334,7 +347,8 @@ for want in "osd osd_scrub_sleep 0.200000" "mon mon_allow_pool_delete true" "glo
 	[ "$got" = "$val" ] || { echo "config $sec/$name: $got, want $val"; exit 1; }
 done
 # every explicitly set option from before is still there with the same value (cephadm's own tuning excluded)
-keep='[.[] | select(.name != "container_image" and .name != "osd_memory_target") | [.section, .name, .value]]'
+# (cephadm's own container_image, osd_memory_target and, across a major, its store migration counter)
+keep='[.[] | select(.name != "container_image" and .name != "osd_memory_target" and .name != "mgr/cephadm/migration_current") | [.section, .name, .value]]'
 lost=$(jq -n --argjson a "$(jq "$keep" "$art/before/config.json")" --argjson b "$(jq "$keep" "$art/after/config.json")" '$a - $b | .[] | @tsv' -r)
 [ -z "$lost" ] || { echo "config entries lost or changed:"; echo "$lost"; exit 1; }
 jq -r '.enabled_modules[]' "$art/before/modules.json" | sort >"$work/mods.before"

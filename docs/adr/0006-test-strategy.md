@@ -13,9 +13,9 @@ the only test environment.
   passes on Haswell.
 - Parity: per ADR 0002.
 - Functional: cephadm and ceph-csi's Rook e2e on GitHub Ubuntu runners from the image artifact.
-- NixOS VM tests on the builder with AVX2 masked, first asserting the guest has no `avx2`.
+- NixOS VM tests on hosted runners (ADR 0010) with AVX2 masked, first asserting the guest has no `avx2`.
 
 ## Consequences
 
 - Negative controls keep the tests honest, at the cost of pulling the upstream image.
-- Heavy functional tests run on throwaway GitHub runners, VM tests only on the builder (ADR 0007).
+- Heavy functional tests run on throwaway GitHub runners, VM tests likewise.

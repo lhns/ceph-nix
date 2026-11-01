@@ -1,6 +1,6 @@
 # Image packages, merged into the flake's packages: one set per Ceph track (`-tentacle`, `-umbrella`).
-# `ceph-image` is the Umbrella image. It is built on the self-hosted builder only (a from-source Ceph build takes
-# hours, ADR 0007); no check depends on it.
+# `ceph-image` is the Umbrella image. Its Ceph is a from-source build (about 1.5 h on a hosted runner) that CI builds
+# once per derivation and caches (ADR 0010); no flake check depends on it.
 { pkgs, self }:
 let
   mkCephImage = import ./ceph.nix { inherit pkgs; };

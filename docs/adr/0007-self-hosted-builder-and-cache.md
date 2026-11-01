@@ -1,6 +1,6 @@
 # 7. Self-hosted builder and binary cache
 
-Status: Accepted (2026-10)
+Status: Superseded by [0010](0010-hosted-runners-and-actions-cache.md)
 
 ## Context
 

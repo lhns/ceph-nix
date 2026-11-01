@@ -1,0 +1,216 @@
+name: ceph-track
+# One Ceph track (Tentacle or Umbrella): image build and the tests that take its tarball (ADR 0006). Called by ceph.yml.
+on:
+  workflow_call:
+    inputs:
+      track:
+        description: tentacle or umbrella
+        type: string
+        required: true
+      image:
+        description: Flake package (streamed image) to build and test
+        type: string
+        required: true
+      expected_version:
+        description: Expected `ceph -v` major.minor
+        type: string
+        required: true
+      parity_userland:
+        description: el9 or el10, the userland of the upstream image (tests/parity.sh)
+        type: string
+        default: el9
+      cached_ceph:
+        description: Build Ceph through the ceph-umbrella action (a from-source build that is cached, ADR 0010)
+        type: boolean
+        default: false
+    outputs:
+      tag:
+        description: Docker tag of the loaded image
+        value: ${{ jobs.build.outputs.tag }}
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash # with pipefail
+env:
+  # The pins of tests/upstream-images.json, resolved in the jobs that use them (the checkout is there).
+  PINS: tests/upstream-images.json
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360 # a cold Umbrella build is about 1.5 h (ADR 0010)
+    outputs:
+      tag: ${{ steps.load.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            system-features = nixos-test benchmark big-parallel kvm
+      - uses: ./.github/actions/ceph-umbrella
+        if: inputs.cached_ceph
+      - name: Ceph must not be rebuilt for the image
+        if: inputs.cached_ceph
+        run: |
+          nix build --dry-run ".#${{ inputs.image }}" 2>&1 | tee dry.log
+          if grep -E '/nix/store/[a-z0-9]{32}-ceph-[0-9.]+[.]drv' dry.log; then
+            echo "::error::the image build would still compile Ceph: the ceph-umbrella action left outputs out"; exit 1
+          fi
+      - name: image derivation
+        run: nix path-info --derivation ".#${{ inputs.image }}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: nix build
+        run: nix build -L --no-link --print-out-paths ".#${{ inputs.image }}" | tee stream.path
+      - name: docker load and save
+        id: load
+        run: |
+          $(cat stream.path) | zstd -T0 -3 -o image.tar.zst
+          zstd -dc image.tar.zst | docker load | tee load.log
+          tag=$(sed -n 's/^Loaded image: //p' load.log)
+          echo "tag=$tag" | tee -a "$GITHUB_OUTPUT"
+          docker images
+          {
+            echo '### Image'
+            echo "$tag: $(docker image inspect -f '{{.Size}}' "$tag" | numfmt --to=iec) uncompressed, $(du -h image.tar.zst | cut -f1) zstd"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: image-${{ inputs.track }}
+          path: image.tar.zst
+          retention-days: 7
+          compression-level: 0
+
+  cpu:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: upstream image pins
+        run: |
+          echo "UPSTREAM_IMAGE=$(jq -r '.${{ inputs.track }}' "$PINS")" | tee -a "$GITHUB_ENV"
+          # Known x86-64-v3 image (upstream's Umbrella): the negative control for the CPU test.
+          echo "UPSTREAM_V3_IMAGE=$(jq -r .umbrella "$PINS")" | tee -a "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: image-${{ inputs.track }}
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static
+          zstd -dc image.tar.zst | docker load
+          docker pull -q "$UPSTREAM_V3_IMAGE"
+      - name: ours on Ivy Bridge
+        run: tests/cpu.sh "${{ needs.build.outputs.tag }}" IvyBridge pass
+      - name: ours on Nehalem (plain x86-64-v2, no AVX)
+        run: tests/cpu.sh "${{ needs.build.outputs.tag }}" Nehalem pass
+      - name: upstream v21.2.0 on Ivy Bridge must be refused
+        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" IvyBridge fail
+      - name: upstream v21.2.0 on Haswell runs (the harness is not the failure)
+        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" Haswell pass
+
+  parity:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: upstream image pins
+        run: |
+          echo "UPSTREAM_IMAGE=$(jq -r '.${{ inputs.track }}' "$PINS")" | tee -a "$GITHUB_ENV"
+          # Known x86-64-v3 image (upstream's Umbrella): the negative control for the CPU test.
+          echo "UPSTREAM_V3_IMAGE=$(jq -r .umbrella "$PINS")" | tee -a "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: image-${{ inputs.track }}
+      - run: |
+          zstd -dc image.tar.zst | docker load
+          docker pull -q "$UPSTREAM_IMAGE"
+      - name: parity with upstream
+        env:
+          PARITY_USERLAND: ${{ inputs.parity_userland }}
+          PARITY_PENDING_OK: "1" # tests/parity-pending.txt is empty today; see there
+        run: tests/parity.sh "$UPSTREAM_IMAGE" "${{ needs.build.outputs.tag }}" "${{ inputs.expected_version }}"
+
+  cephadm:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: image-${{ inputs.track }}
+      - name: cephadm.sh
+        env:
+          ARTIFACT_DIR: ${{ github.workspace }}/cephadm-logs
+          ALLOWED_WARNINGS: ${{ inputs.track == 'umbrella' && 'CEPHADM_STRAY_DAEMON' || '' }}
+        run: tests/cephadm.sh image.tar.zst
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cephadm-logs-${{ inputs.track }}
+          path: cephadm-logs
+          retention-days: 7
+
+  # In-place migration: upstream cluster -> our image via `ceph orch upgrade` (FROM/TO are parameters of upgrade.sh).
+  upgrade:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+      - name: upstream image pins
+        run: |
+          echo "UPSTREAM_IMAGE=$(jq -r '.${{ inputs.track }}' "$PINS")" | tee -a "$GITHUB_ENV"
+          # Known x86-64-v3 image (upstream's Umbrella): the negative control for the CPU test.
+          echo "UPSTREAM_V3_IMAGE=$(jq -r .umbrella "$PINS")" | tee -a "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: image-${{ inputs.track }}
+      - name: upgrade.sh
+        timeout-minutes: 75
+        env:
+          ARTIFACT_DIR: ${{ github.workspace }}/upgrade-logs
+        run: tests/upgrade.sh "$UPSTREAM_IMAGE" image.tar.zst
+      - if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: upgrade-logs-${{ inputs.track }}
+          path: upgrade-logs
+          retention-days: 7
+
+  # Report-only (upstream's snyk jobs need a token).
+  scan:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: image-${{ inputs.track }}
+      - run: |
+          zstd -d image.tar.zst -o image.tar
+          docker run --rm -v "$PWD/image.tar:/image.tar:ro" aquasec/trivy:latest image --quiet --input /image.tar \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - uses: actions/download-artifact@v8
+        with:
+          name: image-${{ inputs.track }}
+      - run: zstd -dc image.tar.zst | docker load
+      - name: ceph-csi acceptance e2e on Rook with our Ceph image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tests/e2e.sh "${{ needs.build.outputs.tag }}"
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-logs-${{ inputs.track }}
+          path: /tmp/acceptance-e2e-logs/
+          retention-days: 7
