@@ -84,7 +84,9 @@ jobs:
       - uses: actions/checkout@v7
       - name: upstream v21.2.0 as a docker-archive
         run: |
-          skopeo copy "docker://$(jq -r .umbrella tests/upstream-images.json)" docker-archive:upstream-21.tar:quay.io/ceph/ceph:v21.2.0
+          ref=$(jq -r .umbrella tests/upstream-images.json)
+          # skopeo takes a digest or a tag, not both
+          skopeo copy "docker://${ref%%:*}@${ref#*@}" docker-archive:upstream-21.tar:quay.io/ceph/ceph:v21.2.0
           ls -lh upstream-21.tar
       - name: upgrade.sh upstream 20.2.4 -> upstream 21.2.0
         timeout-minutes: 75
