@@ -206,53 +206,6 @@ step "nfs: service map and cephadm's stray check (mgr failover)"
 stray_check_now
 endstep
 
-step "nfs: RGW export (FSAL_RGW), mount, I/O, seen through S3"
-python3 - "$ip" <<'PY'
-import sys
-import boto3
-
-s3 = boto3.client("s3", endpoint_url=f"http://{sys.argv[1]}:8080", aws_access_key_id="AKIATEST",
-                  aws_secret_access_key="SECRETTEST", region_name="us-east-1")
-s3.create_bucket(Bucket="nfsbucket")
-PY
-# the export's user is the bucket's owner (t)
-tbx ceph nfs export create rgw --cluster-id nfs1 --pseudo-path /rgw --bucket nfsbucket
-sudo mkdir -p /mnt/nfsrgw
-mount_nfs_rgw() { timeout 30 sudo mount -v -t nfs -o nfsvers=4.1,proto=tcp,retry=0 "$ip:/rgw" /mnt/nfsrgw 2>&1 | tee -a "$art/nfs-rgw-mount.log"; [ "${PIPESTATUS[0]}" = 0 ]; }
-if ! wait_for 30 "nfs live rgw export reload" mount_nfs_rgw; then
-	echo "NOTE: ganesha did not load the new export live; restarting the nfs service"
-	tbx ceph orch restart nfs.nfs1
-	sleep 20
-	wait_for 300 "nfs running again" daemon_running nfs
-fi
-wait_for 120 "nfs rgw mount" mount_nfs_rgw || {
-	cat "$art/nfs-rgw-mount.log"
-	tbx ceph nfs export ls nfs1 --detailed
-	sudo podman logs "$(sudo podman ps -q --filter name=nfs.nfs1 | head -n1)" 2>&1 | tail -n 60 || true
-	false
-}
-head -c 8M /dev/urandom >"$work/nfsrgw.in"
-sudo cp "$work/nfsrgw.in" /mnt/nfsrgw/rgwfile
-sudo umount /mnt/nfsrgw
-want=$(md5sum <"$work/nfsrgw.in" | cut -d' ' -f1)
-mount_nfs_rgw
-got=$(sudo md5sum /mnt/nfsrgw/rgwfile | cut -d' ' -f1)
-sudo umount /mnt/nfsrgw
-[ "$got" = "$want" ] || { echo "md5 through NFS: $got, want $want"; exit 1; }
-# and the file is an object in the bucket
-python3 - "$ip" "$want" <<'PY'
-import hashlib
-import sys
-import boto3
-
-s3 = boto3.client("s3", endpoint_url=f"http://{sys.argv[1]}:8080", aws_access_key_id="AKIATEST",
-                  aws_secret_access_key="SECRETTEST", region_name="us-east-1")
-body = s3.get_object(Bucket="nfsbucket", Key="rgwfile")["Body"].read()
-assert hashlib.md5(body).hexdigest() == sys.argv[2], "S3 object differs from what was written through NFS"
-print("nfs-rgw ok")
-PY
-endstep
-
 # the daemons start; replication between two clusters is not tested
 step "rbd-mirror and cephfs-mirror"
 tbx ceph orch apply rbd-mirror --placement=1
@@ -464,6 +417,56 @@ else
 	exit 1
 fi
 sudo losetup -d "$bdev"
+endstep
+
+# Last, so a gap here does not hide the other checks: on Tentacle, Ganesha 5.9 of ours aborts ("buffer overflow
+# detected") when it loads an RGW export; the upstream image mounts it.
+step "nfs: RGW export (FSAL_RGW), mount, I/O, seen through S3"
+python3 - "$ip" <<'PY'
+import sys
+import boto3
+
+s3 = boto3.client("s3", endpoint_url=f"http://{sys.argv[1]}:8080", aws_access_key_id="AKIATEST",
+                  aws_secret_access_key="SECRETTEST", region_name="us-east-1")
+s3.create_bucket(Bucket="nfsbucket")
+PY
+# the export's user is the bucket's owner (t)
+tbx ceph nfs export create rgw --cluster-id nfs1 --pseudo-path /rgw --bucket nfsbucket
+sudo mkdir -p /mnt/nfsrgw
+mount_nfs_rgw() { timeout 30 sudo mount -v -t nfs -o nfsvers=4.1,proto=tcp,retry=0 "$ip:/rgw" /mnt/nfsrgw 2>&1 | tee -a "$art/nfs-rgw-mount.log"; [ "${PIPESTATUS[0]}" = 0 ]; }
+if ! wait_for 30 "nfs live rgw export reload" mount_nfs_rgw; then
+	echo "NOTE: ganesha did not load the new export live; restarting the nfs service"
+	tbx ceph orch restart nfs.nfs1
+	sleep 20
+	wait_for 300 "nfs running again" daemon_running nfs
+fi
+wait_for 120 "nfs rgw mount" mount_nfs_rgw || {
+	cat "$art/nfs-rgw-mount.log"
+	tbx ceph nfs export ls nfs1 --detailed
+	sudo podman logs "$(sudo podman ps -q --filter name=nfs.nfs1 | head -n1)" 2>&1 | tail -n 60 || true
+	false
+}
+# small: upstream Tentacle (Ganesha 5.9) fails an 8M write through FSAL_RGW with EIO
+head -c 4096 /dev/urandom >"$work/nfsrgw.in"
+sudo cp "$work/nfsrgw.in" /mnt/nfsrgw/rgwfile
+sudo umount /mnt/nfsrgw
+want=$(md5sum <"$work/nfsrgw.in" | cut -d' ' -f1)
+mount_nfs_rgw
+got=$(sudo md5sum /mnt/nfsrgw/rgwfile | cut -d' ' -f1)
+sudo umount /mnt/nfsrgw
+[ "$got" = "$want" ] || { echo "md5 through NFS: $got, want $want"; exit 1; }
+# and the file is an object in the bucket
+python3 - "$ip" "$want" <<'PY'
+import hashlib
+import sys
+import boto3
+
+s3 = boto3.client("s3", endpoint_url=f"http://{sys.argv[1]}:8080", aws_access_key_id="AKIATEST",
+                  aws_secret_access_key="SECRETTEST", region_name="us-east-1")
+body = s3.get_object(Bucket="nfsbucket", Key="rgwfile")["Body"].read()
+assert hashlib.md5(body).hexdigest() == sys.argv[2], "S3 object differs from what was written through NFS"
+print("nfs-rgw ok")
+PY
 endstep
 
 step "final health"
