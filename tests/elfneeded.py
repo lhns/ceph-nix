@@ -4,16 +4,20 @@
 Run with the image's own python3 (no readelf in a Nix image), so it must work on Python 3.9 (EL9) and up.
   elfneeded.py                 print "so:<binary>:<normalized soname>" lines
 Nix wrappers (.ceph-osd-wrapped, or a script that execs the store path) are resolved to the real ELF. A soname is
-normalized by dropping the version after ".so" (libboost_system.so.1.87.0 -> libboost_system.so).
+normalized by dropping the directory, the version after ".so" and a version in the name (libboost_system.so.1.87.0 ->
+libboost_system.so, liblua-5.4.so -> liblua.so, libpython3.9.so.1.0 -> libpython3.so).
+  so:<name>:<soname>       direct DT_NEEDED
+  closure:<name>:<soname>  every library ldd resolves (to tell a direct link from one through a shared library)
+  probe:<name>:<what>=<n>  feature probes, info only
 """
 import glob
 import os
 import re
 import struct
-import sys
+import subprocess
 
-BINARIES = ["ceph-osd", "ceph-mon", "ceph-mgr", "ceph-mds", "radosgw", "rbd-mirror"]
-LIBRARIES = ["librados", "librbd", "libcephfs", "librgw", "libcephsqlite"]
+BINARIES = ["ceph-osd", "ceph-mon", "ceph-mgr", "ceph-mds", "radosgw", "rbd-mirror", "ceph-fuse", "rbd-nbd"]
+LIBRARIES = ["librados", "librbd", "libcephfs", "librgw", "libcephsqlite", "libradosstriper", "libceph-common"]
 
 
 def is_elf(path):
@@ -85,10 +89,28 @@ def needed(path):
     return out
 
 
+def norm(soname):
+    s = os.path.basename(soname)
+    s = re.sub(r"\.so(\..*)?$", ".so", s)
+    s = re.sub(r"^libpython3.[0-9]+", "libpython3", s)
+    s = re.sub(r"^libboost_python[0-9]+", "libboost_python", s)
+    s = re.sub(r"-[0-9][0-9.]*\.so$", ".so", s)
+    return s
+
+
+def closure(elf):
+    try:
+        out = subprocess.run(["ldd", elf], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, universal_newlines=True,
+                             env={"PATH": os.environ.get("PATH", "")}).stdout
+    except OSError:
+        return None
+    return {norm(m.group(1)) for m in re.finditer(r"^\s*(\S+) =>", out, re.M)}
+
+
 def find(name):
     if name.startswith("lib"):
-        for d in ("/usr/lib64", "/usr/lib"):
-            for p in sorted(glob.glob("%s/%s.so.*" % (d, name))):
+        for d in ("/usr/lib64", "/usr/lib", "/usr/lib64/ceph"):
+            for p in sorted(glob.glob("%s/%s.so.*" % (d, name))) + sorted(glob.glob("%s/%s.so" % (d, name))):
                 if real_elf(p):
                     return p
         return None
@@ -110,8 +132,13 @@ def main():
         except (OSError, ValueError, struct.error) as e:
             print("error:%s:%s" % (name, e))
             continue
-        for so in sorted({re.sub(r"\.so\..*$", ".so", s) for s in sonames}):
+        for so in sorted({norm(s) for s in sonames} - {"ld-linux-x86-64.so"}):
             print("so:%s:%s" % (name, so))
+        for so in sorted((closure(elf) or set()) - {"ld-linux-x86-64.so"}):
+            print("closure:%s:%s" % (name, so))
+        if name == "librbd":
+            with open(elf, "rb") as f:
+                print("probe:librbd:pwl-strings=%d" % f.read().count(b"pwl"))
 
 
 main()

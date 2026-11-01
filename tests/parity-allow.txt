@@ -302,3 +302,8 @@ pymod:backports  # [el9] EL's transitive python dependencies (of dnf, google-aut
 pymod:systemd  # [el9] EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
 
 pydist:ceph-iscsi  # ceph-iscsi is installed (nix/pkgs/ceph-iscsi.nix, format other) but without dist-info metadata, ADR 0002
+
+# Linkage ("so:<binary>:<soname>", tests/parity.sh, tests/elfneeded.py): sonames upstream's binaries link directly that
+# ours does not reach at all. Versions are dropped from the names.
+
+so:*:libtcmalloc.so  # allocator switch pending (ours links jemalloc), plan P2, ADR 0002

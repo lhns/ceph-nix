@@ -10,11 +10,12 @@
 # Also the Python the mgr runs on (tests/pydists.py): every distribution installed in upstream's python3, and every
 # top-level module no distribution owns, is present in ours ("pydist:<name>" / "pymod:<name>" entries, normalized
 # names), same allowlist. And the dashboard's optional gRPC/NVMe-oF client imports, which fails silently otherwise.
-# Also the linkage: the DT_NEEDED sonames (version suffix dropped) of ceph-osd/mon/mgr/mds, radosgw, rbd-mirror and
-# librados/librbd/libcephfs/librgw/libcephsqlite (tests/elfneeded.py). Sonames upstream links and ours does not are
-# "so:<binary>:<soname>" entries, same allowlist; ours-only ones are printed as info.
+# Also the linkage: the DT_NEEDED sonames (versions dropped) of the daemons, ceph-fuse, rbd-nbd and the Ceph libraries
+# (tests/elfneeded.py). Sonames upstream links directly and ours does not reach at all are "so:<binary>:<soname>"
+# entries, same allowlist; the rest is printed as info.
 # Also: `ceph -v` is EXPECTED_MAJOR_MINOR, and every mgr module that imports in upstream's image imports in ours.
 set -uo pipefail
+export LC_ALL=C # sort and comm must agree
 up=$1 ours=$2 expected=$3
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
@@ -38,6 +39,8 @@ run "$up" 'for d in /usr/bin /usr/sbin /usr/libexec/ceph /usr/lib64/ceph /usr/li
 	ls -d /usr/lib64/lib{rados,rbd,cephfs,rgw,radosstriper,cephsqlite}.so* 2>/dev/null
 	find /usr/share/ceph/mgr \( -type f -o -type l \) ! -path "*/__pycache__/*" ! -name "*.pyc" 2>/dev/null; true' </dev/null | sort -u >"$work/upstream.txt"
 echo "upstream entries: $(wc -l <"$work/upstream.txt")"
+for d in /usr/lib64/ceph/ /usr/lib64/rados-classes/ /usr/lib64/ganesha/ /usr/lib64/tcmu-runner/ /usr/lib64/lib; do
+	echo "  $d*: $(grep -c "^$d" "$work/upstream.txt")"; done
 echo "upstream mgr files: $(grep -c "^/usr/share/ceph/mgr/" "$work/upstream.txt"); dashboard frontend files: $(grep -c "^/usr/share/ceph/mgr/dashboard/frontend/" "$work/upstream.txt")"
 # upstream's /usr/sbin may be /usr/bin (merged usr): an entry exists if it does in either place
 run "$ours" 'while read -r p; do [ -e "$p" ] || echo "$p"; done' <"$work/upstream.txt" | sort -u >"$work/missing.txt"
@@ -55,17 +58,24 @@ sort -u -o "$work/missing.txt" "$work/missing.txt"
 
 # --- linkage: DT_NEEDED sonames of the daemons and libraries, in the image's own python3 (no readelf in a Nix image)
 elfrun() { docker run --rm -v "$here/elfneeded.py:/elfneeded.py:ro" --entrypoint python3 "$1" /elfneeded.py </dev/null; }
-elfrun "$up" | sort -u >"$work/so-up.txt" || fail "cannot read the linkage of upstream's image"
-elfrun "$ours" | sort -u >"$work/so-ours.txt" || fail "cannot read the linkage of our image"
-echo "linkage: $(grep -c '^so:' "$work/so-up.txt") upstream sonames, $(grep -c '^so:' "$work/so-ours.txt") ours"
-grep -v '^so:' "$work/so-up.txt" | sed 's/^/upstream: /'
-grep -v '^so:' "$work/so-ours.txt" | sed 's/^/ours: /'
-echo "== linkage only in ours (info)"; comm -13 "$work/so-up.txt" "$work/so-ours.txt" | grep '^so:'
-comm -23 "$work/so-up.txt" "$work/so-ours.txt" | grep '^so:' >"$work/so-missing.txt"
-if [ "${PARITY_SO_GATING:-0}" = 1 ]; then
-	cat "$work/so-missing.txt" >>"$work/missing.txt"
-	sort -u -o "$work/missing.txt" "$work/missing.txt"
-fi
+elfrun "$up" | sort -u >"$work/elf-up.txt" || fail "cannot read the linkage of upstream's image"
+elfrun "$ours" | sort -u >"$work/elf-ours.txt" || fail "cannot read the linkage of our image"
+for k in up ours; do
+	grep '^so:' "$work/elf-$k.txt" >"$work/so-$k.txt"
+	sed -n 's/^closure:/so:/p' "$work/elf-$k.txt" | sort -u >"$work/closure-$k.txt"
+	grep -E '^(absent|error|probe):' "$work/elf-$k.txt" | sed "s/^/$k: /"
+done
+echo "linkage: $(wc -l <"$work/so-up.txt") upstream direct sonames, $(wc -l <"$work/so-ours.txt") ours"
+# upstream links it directly: a gap, unless ours reaches it through a shared library (upstream bundles rocksdb and boost
+# statically, ours uses the shared ones, so zlib, lz4 and snappy come in through them)
+comm -23 "$work/so-up.txt" "$work/so-ours.txt" >"$work/so-direct.txt"
+comm -12 "$work/so-direct.txt" "$work/closure-ours.txt" >"$work/so-transitive.txt"
+comm -23 "$work/so-direct.txt" "$work/closure-ours.txt" >"$work/so-missing.txt"
+group() { awk -F: '{a[$3]=a[$3]" "$2} END{for(k in a)print "  " k ":" a[k]}' | sort; }
+echo "== linkage only in ours (info)"; comm -13 "$work/so-up.txt" "$work/so-ours.txt" | group
+echo "== linkage upstream has directly, ours reaches through a shared library (info)"; group <"$work/so-transitive.txt"
+cat "$work/so-missing.txt" >>"$work/missing.txt"
+sort -u -o "$work/missing.txt" "$work/missing.txt"
 
 # Entries tagged [el9]/[el10] (the upstream image's userland) are not stale-checked for the other one.
 userland=${PARITY_USERLAND:-el9}
@@ -100,9 +110,6 @@ matches "$work/rest.txt" "$work/pending.pat" | sort -u >"$work/pending.txt"
 comm -23 "$work/rest.txt" "$work/pending.txt" >"$work/gaps.txt"
 
 echo "missing in ours: $(wc -l <"$work/missing.txt"); allowed: $(wc -l <"$work/allowed.txt"); pending: $(wc -l <"$work/pending.txt"); gaps: $(wc -l <"$work/gaps.txt")"
-if [ "${PARITY_SO_GATING:-0}" != 1 ]; then
-	echo "== linkage only in upstream (REPORT-ONLY, would fail)"; cat "$work/so-missing.txt"
-fi
 if [ -s "$work/gaps.txt" ]; then
 	echo "== unexplained gaps"; cat "$work/gaps.txt"
 	fail "files missing in our image"
