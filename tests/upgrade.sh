@@ -296,7 +296,11 @@ step "after: NFS grace table"
 grace_dump() { tbx ganesha-rados-grace --pool .nfs --ns nfs1 dump; }
 grace_dump | tee "$art/after/grace-before-fix.txt"
 sudo sh -c "grep -H nodeid /var/lib/ceph/$fsid/nfs.*/etc/ganesha/ganesha.conf" || true
-stale=$(tbx rados -p .nfs -N nfs1 listomapkeys grace | grep -xE '[0-9]+' || true)
+# --- README procedure, for cluster c=nfs1 (dumps above and below). Stale: "<k>" next to a live "node<k>"; on
+# Tentacle alone "0" is the live key.
+c=nfs1
+keys=$(tbx rados -p .nfs -N "$c" listomapkeys grace)
+stale=$(for k in $keys; do if grep -qx "node$k" <<<"$keys"; then echo "$k"; fi; done)
 echo "stale grace keys: [${stale}]"
 if [ -n "${NFS_STALE_GRACE-}" ] && [ -z "$stale" ]; then
 	summary "NFS: no stale numeric key in the grace table; the README migration step may be obsolete"
@@ -309,9 +313,6 @@ if [ -n "$stale" ]; then
 	# the untouched state: the new daemon never lifts and logs nothing about it
 	sudo "$work/cephadm" logs --name "$(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].daemon_name')" 2>&1 |
 		grep -iE 'grace' | tail -20 || true
-	# --- README procedure, for cluster c=nfs1 ---
-	c=nfs1
-	stale=$(tbx rados -p .nfs -N "$c" listomapkeys grace | grep -xE '[0-9]+')
 	for k in $stale; do tbx rados -p .nfs -N "$c" rmomapkey grace "$k"; done
 	for k in $stale; do tbx ganesha-rados-grace --pool .nfs --ns "$c" start "$k"; done
 	# ---

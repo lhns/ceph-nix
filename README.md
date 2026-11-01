@@ -95,7 +95,8 @@ each NFS cluster (`ceph nfs cluster ls`):
 ```sh
 c=<cluster id>
 ganesha-rados-grace --pool .nfs --ns $c dump    # stale: "0  NE"; live: "node0  E"
-stale=$(rados -p .nfs -N $c listomapkeys grace | grep -xE '[0-9]+')
+keys=$(rados -p .nfs -N $c listomapkeys grace)
+stale=$(for k in $keys; do if grep -qx "node$k" <<<"$keys"; then echo "$k"; fi; done)   # "0" next to "node0"
 for k in $stale; do rados -p .nfs -N $c rmomapkey grace $k; done
 for k in $stale; do ganesha-rados-grace --pool .nfs --ns $c start $k; done
 ganesha-rados-grace --pool .nfs --ns $c dump    # within a minute: rec=0, no N
