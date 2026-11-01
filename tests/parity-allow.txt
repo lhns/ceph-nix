@@ -260,3 +260,45 @@
 /usr/*/lesspipe.sh  # [el10] less preprocessor script of EL, ADR 0002
 /usr/*/*-3.12  # [el10] EL's versioned python entry points (jsonpatch-3.12), ADR 0002
 /usr/*/python3.12-*config  # [el10] python development helper, ADR 0002
+
+# Python distributions and unowned modules of upstream's python3 that ours lacks (tests/parity.sh, tests/pydists.py):
+# "pydist:<normalized name>" and "pymod:<module>" instead of a path.
+
+pydist:rpm  # OS package management and SELinux bindings, ADR 0002
+pydist:dnf  # [el10] OS package management and SELinux bindings, ADR 0002
+pydist:libdnf  # [el10] OS package management and SELinux bindings, ADR 0002
+pydist:libcomps  # OS package management and SELinux bindings, ADR 0002
+pymod:dnf-plugins  # OS package management and SELinux bindings, ADR 0002
+pymod:hawkey  # OS package management and SELinux bindings, ADR 0002
+pymod:dnf  # [el9] OS package management and SELinux bindings, ADR 0002
+pymod:libdnf  # [el9] OS package management and SELinux bindings, ADR 0002
+pymod:dnfpluginscore  # [el9] OS package management and SELinux bindings, ADR 0002
+pydist:selinux  # [el9] OS package management and SELinux bindings, ADR 0002
+pydist:sepolicy  # [el9] OS package management and SELinux bindings, ADR 0002
+pydist:setools  # [el9] OS package management and SELinux bindings, ADR 0002
+pydist:gpg  # [el9] OS package management and SELinux bindings, ADR 0002
+pymod:_audit  # [el9] OS package management and SELinux bindings, ADR 0002
+pymod:_selinux  # [el9] OS package management and SELinux bindings, ADR 0002
+pymod:_semanage  # [el9] OS package management and SELinux bindings, ADR 0002
+pymod:audit  # [el9] OS package management and SELinux bindings, ADR 0002
+pymod:auparse  # [el9] OS package management and SELinux bindings, ADR 0002
+pymod:semanage  # [el9] OS package management and SELinux bindings, ADR 0002
+pymod:seobject  # [el9] OS package management and SELinux bindings, ADR 0002
+pymod:sepolgen  # [el9] OS package management and SELinux bindings, ADR 0002
+
+pydist:cloudpickle  # EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pydist:ply  # EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pydist:urwid  # EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pydist:kmod  # EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pydist:backports-tarfile  # [el9] EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pydist:cachetools  # [el9] EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pydist:chardet  # [el9] EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pydist:pysocks  # [el9] EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pydist:rsa  # [el9] EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pydist:toml  # [el9] EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pydist:dbus-python  # [el9] EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pydist:systemd-python  # [el9] EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pymod:backports  # [el9] EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+pymod:systemd  # [el9] EL's transitive python dependencies (of dnf, google-auth, requests, scikit-learn, setools, ...), ADR 0002
+
+pydist:ceph-iscsi  # ceph-iscsi is installed (nix/pkgs/ceph-iscsi.nix, format other) but without dist-info metadata, ADR 0002
