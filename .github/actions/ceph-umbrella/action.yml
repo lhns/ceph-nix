@@ -13,12 +13,11 @@ runs:
         hash=${drv#/nix/store/}
         hash=${hash%%-*}
         echo "drv=$drv"
-        # fail now, not after a 1.5 h build, if the export mechanism does not work here
+        # fail now, not after a 1.5 h build, if the export and import do not work here
         probe=$(readlink -f "$(command -v nix)")
         probe=${probe%/bin/*}
-        nix copy --no-recursive --to "file://$RUNNER_TEMP/probe-cache?compression=none" "$probe"
-        test -e "$RUNNER_TEMP/probe-cache/nix-cache-info"
-        rm -rf "$RUNNER_TEMP/probe-cache"
+        nix-store --export "$probe" | zstd -c | zstd -dc | nix-store --import
+        nix config show trusted-users
         echo "key=ceph-umbrella-$hash" | tee -a "$GITHUB_OUTPUT"
         echo "dir=$RUNNER_TEMP/ceph-umbrella-cache" | tee -a "$GITHUB_OUTPUT"
     - name: restore the Nix cache of Ceph
@@ -27,31 +26,35 @@ runs:
       with:
         path: ${{ steps.key.outputs.dir }}
         key: ${{ steps.key.outputs.key }}
-    # Every output of the derivation (out, lib, dev, ...) is built, exported and checked: the image needs them all.
-    # The cache directory is a Nix binary cache (file://) holding only the store paths that cache.nixos.org lacks, so
-    # Nix substitutes Ceph from it like from any cache and builds whatever is missing. It is unsigned, hence
-    # require-sigs off for this one command; only this repo's own runs can write the cache.
-    - name: build or substitute .#ceph-umbrella
-      id: build
+    # The cache holds only the closure's store paths that cache.nixos.org does not serve (keep.txt, as a
+    # nix-store --export stream) and the list of those it does (subst.txt). Importing needs the references of the
+    # kept paths in the store, so those are substituted first. A failure here only means a build below.
+    - name: import the cached Ceph
+      if: steps.restore.outputs.cache-hit == 'true'
       shell: bash # with pipefail
       env:
         DIR: ${{ steps.key.outputs.dir }}
-        HIT: ${{ steps.restore.outputs.cache-hit }}
-        KEY: ${{ steps.key.outputs.key }}
       run: |
-        opts=()
-        built=true
-        if [ "$HIT" = true ]; then
-          opts=(--extra-substituters "file://$DIR" --option require-sigs false)
-          nix build --dry-run "${opts[@]}" ".#ceph-umbrella^*" 2>&1 | tee "$RUNNER_TEMP/dry.log"
-          if grep -q 'will be built' "$RUNNER_TEMP/dry.log"; then
-            echo "::warning::cache hit on $KEY, but Nix would still build: the cache is incomplete"
-          else
-            built=false
-          fi
+        ls -lh "$DIR"
+        xargs -a "$DIR/subst.txt" nix-store --realise >/dev/null || echo "::warning::cannot substitute the cached closure"
+        zstd -dc "$DIR/keep.nar.zst" | nix-store --import >/dev/null || echo "::warning::cannot import the cached Ceph"
+    - name: build or reuse .#ceph-umbrella
+      id: build
+      shell: bash # with pipefail
+      env:
+        KEY: ${{ steps.key.outputs.key }}
+        HIT: ${{ steps.restore.outputs.cache-hit }}
+      run: |
+        # every output of the derivation (out, lib, dev, ...): the image needs them all
+        nix build --dry-run ".#ceph-umbrella^*" 2>&1 | tee "$RUNNER_TEMP/dry.log"
+        if grep -q 'will be built' "$RUNNER_TEMP/dry.log"; then
+          built=true
+          [ "$HIT" != true ] || echo "::warning::cache hit on $KEY, but Nix still has to build Ceph: the cache is incomplete"
+        else
+          built=false
         fi
         start=$SECONDS
-        nix build -L --no-link --print-out-paths "${opts[@]}" ".#ceph-umbrella^*" | tee "$RUNNER_TEMP/ceph-umbrella.outs"
+        nix build -L --no-link --print-out-paths ".#ceph-umbrella^*" | tee "$RUNNER_TEMP/ceph-umbrella.outs"
         if [ "$built" = true ]; then verb="built from source"; else verb="restored from the cache"; fi
         echo "### Ceph Umbrella $verb in $((SECONDS - start))s (key $KEY)" | tee -a "$GITHUB_STEP_SUMMARY"
         echo "built=$built" >>"$GITHUB_OUTPUT"
@@ -61,16 +64,18 @@ runs:
       env:
         DIR: ${{ steps.key.outputs.dir }}
       run: |
-        # closure of the outputs, minus every path cache.nixos.org serves (kept unless it answers 200)
+        # closure of the outputs; a path is substitutable if cache.nixos.org answers 200 for it
         nix path-info -r $(cat "$RUNNER_TEMP/ceph-umbrella.outs") | sort -u >"$RUNNER_TEMP/closure.txt"
         xargs -a "$RUNNER_TEMP/closure.txt" -P 32 -I{} bash -c 'p={}; h=${p#/nix/store/}; h=${h%%-*}
           c=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 "https://cache.nixos.org/$h.narinfo" || true)
-          [ "$c" = 200 ] || echo "$p"' | sort >"$RUNNER_TEMP/keep.txt"
-        echo "closure: $(wc -l <"$RUNNER_TEMP/closure.txt") paths, not on cache.nixos.org: $(wc -l <"$RUNNER_TEMP/keep.txt")"
-        cat "$RUNNER_TEMP/keep.txt"
+          [ "$c" = 200 ] && echo "S $p" || echo "K $p"' | sort >"$RUNNER_TEMP/split.txt"
         rm -rf "$DIR"
-        # --no-recursive: the rest comes from cache.nixos.org when the cache is used
-        xargs -a "$RUNNER_TEMP/keep.txt" nix copy --no-recursive --to "file://$DIR?compression=none"
+        mkdir -p "$DIR"
+        sed -n 's/^S //p' "$RUNNER_TEMP/split.txt" >"$DIR/subst.txt"
+        sed -n 's/^K //p' "$RUNNER_TEMP/split.txt" >"$DIR/keep.txt"
+        echo "closure: $(wc -l <"$RUNNER_TEMP/closure.txt") paths, not on cache.nixos.org: $(wc -l <"$DIR/keep.txt")"
+        cat "$DIR/keep.txt"
+        xargs -a "$DIR/keep.txt" nix-store --export | zstd -T0 -3 -o "$DIR/keep.nar.zst"
         du -sh "$DIR" | tee -a "$GITHUB_STEP_SUMMARY"
     - name: save the Nix cache of Ceph
       if: steps.build.outputs.built == 'true'
