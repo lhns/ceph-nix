@@ -17,6 +17,7 @@ import struct
 import subprocess
 
 BINARIES = ["ceph-osd", "ceph-mon", "ceph-mgr", "ceph-mds", "radosgw", "rbd-mirror", "ceph-fuse", "rbd-nbd"]
+LOADER = {"ld-linux-x86.so"}  # the dynamic loader, which Nix binaries list and EL ones do not
 LIBRARIES = ["librados", "librbd", "libcephfs", "librgw", "libcephsqlite", "libradosstriper", "libceph-common"]
 
 
@@ -132,13 +133,13 @@ def main():
         except (OSError, ValueError, struct.error) as e:
             print("error:%s:%s" % (name, e))
             continue
-        for so in sorted({norm(s) for s in sonames} - {"ld-linux-x86-64.so"}):
+        for so in sorted({norm(s) for s in sonames} - LOADER):
             print("so:%s:%s" % (name, so))
-        for so in sorted((closure(elf) or set()) - {"ld-linux-x86-64.so"}):
+        for so in sorted((closure(elf) or set()) - LOADER):
             print("closure:%s:%s" % (name, so))
-        if name == "librbd":
+        if name in ("librbd", "rbd-mirror"):
             with open(elf, "rb") as f:
-                print("probe:librbd:pwl-strings=%d" % f.read().count(b"pwl"))
+                print("probe:%s:ReplicatedWriteLog=%d" % (name, f.read().count(b"ReplicatedWriteLog")))
 
 
 main()

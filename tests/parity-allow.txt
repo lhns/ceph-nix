@@ -307,3 +307,8 @@ pydist:ceph-iscsi  # ceph-iscsi is installed (nix/pkgs/ceph-iscsi.nix, format ot
 # ours does not reach at all. Versions are dropped from the names.
 
 so:*:libtcmalloc.so  # allocator switch pending (ours links jemalloc), plan P2, ADR 0002
+so:*:libthrift.so  # [el9] upstream's el9 build has Jaeger tracing (WITH_JAEGER, thrift); nixpkgs builds with WITH_JAEGER=false, see the build deviations in the ADR, ADR 0002
+so:*:libcurl.so  # [el9] libceph-common links curl together with thrift in the el9 build (Jaeger's opentelemetry-cpp HTTP exporter); ours has no Jaeger, ADR 0002
+so:rbd-mirror:libpmem.so  # [el9] RBD persistent write-back cache in RWL mode (WITH_RBD_RWL, pmdk); not enabled in nixpkgs' Ceph, the ssd mode is unaffected, ADR 0002
+so:rbd-mirror:libpmemobj.so  # [el9] RBD persistent write-back cache in RWL mode, ADR 0002
+so:*:libfuse3.so  # [el10] Umbrella's spec builds ceph-fuse and the OSD's FuseStore against fuse3, nixpkgs' Ceph uses fuse 2: open, fix is buildInputs fuse3 in the Umbrella override, ADR 0002
