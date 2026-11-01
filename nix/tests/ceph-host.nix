@@ -1,6 +1,8 @@
 # VM test for nixosModules.ceph-host (ADR 0004, 0006): two nodes on the nixos-cloudinit base run Ceph
 # through cephadm. Bootstrap, OSDs on both hosts, rbd/cephfs/EC I/O, a switch-to-configuration that
-# must not restart any daemon, a reboot of both nodes, and an OSD on an LV on an Open CAS device.
+# must not restart any daemon, a reboot of both nodes, and an OSD on an LV on an Open CAS device. Also the services
+# of tests/cephadm.sh on a CPU without AVX2 (rgw with S3, NFS and iSCSI from the other node, dashboard REST API,
+# rbd-mirror, cephfs-mirror, ceph-exporter), checked again after the reboot.
 #
 # Slow (about 30 minutes, 2 GB image), so it is a package run by .github/workflows/vm-tests.yml, not a check.
 {
@@ -74,6 +76,33 @@ let
     fs.unmount()
   '';
 
+  # S3 client for the VM (boto3 is not in the image's python): create bucket, put and get, or just get.
+  s3py = pkgs.python3.withPackages (ps: [ ps.boto3 ]);
+  s3check = pkgs.writeScriptBin "s3check" ''
+    #!${s3py}/bin/python3
+    import hashlib
+    import sys
+
+    import boto3
+    from botocore.config import Config
+
+    url, op = sys.argv[1], sys.argv[2]
+    # newer botocore adds checksum trailers by default; only send them where required
+    cfg = Config(request_checksum_calculation="when_required", response_checksum_validation="when_required")
+    s3 = boto3.client("s3", endpoint_url=url, aws_access_key_id="AKIATEST", aws_secret_access_key="SECRETTEST",
+                      region_name="us-east-1", config=cfg)
+    body = b"hello rgw " * 100000
+    if op == "put":
+        s3.create_bucket(Bucket="testbucket")
+        s3.put_object(Bucket="testbucket", Key="k", Body=body)
+    data = s3.get_object(Bucket="testbucket", Key="k")["Body"].read()
+    assert data == body, len(data)
+    print(hashlib.md5(data).hexdigest())
+  '';
+
+  # iSCSI initiator name of node1 (the client); node2 hosts the gateway
+  initiator = "iqn.2004-10.org.nixos:node1";
+
   # The nixos-cloudinit base, minus what a VM test cannot provide.
   base =
     hostName:
@@ -128,6 +157,17 @@ pkgs.testers.runNixOSTest {
       ];
       # mounts cephfs and maps rbd images
       services.ceph-host.clientKernelModules = true;
+      # S3 and iSCSI client (the rgw and the iSCSI gateway run on node2), and Ganesha's port (NFS runs on node1)
+      environment.systemPackages = [
+        s3check
+        pkgs.curl
+      ];
+      services.openiscsi = {
+        enable = true;
+        name = initiator;
+      };
+      boot.kernelModules = [ "iscsi_tcp" ];
+      networking.firewall.allowedTCPPorts = [ 2049 ];
       virtualisation.emptyDiskImages = [
         (disk "N1OSD1" 8192)
         (disk "N1OSD2" 8192)
@@ -168,6 +208,20 @@ pkgs.testers.runNixOSTest {
           cores = [ "/dev/disk/by-id/virtio-CASCORE" ];
         };
       };
+      # NFS client (Ganesha runs on node1); the kernel modules and ports are for the iSCSI gateway and the rgw
+      boot.supportedFilesystems = [ "nfs" ];
+      boot.kernelModules = [
+        "target_core_user"
+        "iscsi_target_mod"
+      ];
+      networking.firewall.allowedTCPPorts = [
+        3260 # iSCSI
+        5001 # rbd-target-api
+        8080 # rgw
+      ];
+      environment.systemPackages = [ pkgs.curl ];
+      # rgw, iSCSI gateway (with tcmu-runner), rbd-mirror and cephfs-mirror run here besides three OSDs
+      virtualisation.memorySize = lib.mkForce 6144;
       services.chrony.servers = [ "node1" ];
       services.chrony.extraConfig = "makestep 0.1 -1";
     };
@@ -177,6 +231,7 @@ pkgs.testers.runNixOSTest {
     { nodes, ... }:
     ''
       import json
+      import re
       import time
 
       ip1 = "${nodes.node1.networking.primaryIPAddress}"
@@ -220,6 +275,42 @@ pkgs.testers.runNixOSTest {
               run(m, "journalctl -u 'ceph*' --no-pager -n 150")
 
 
+      def jsonq(cmd):
+          out = quiet(cmd)
+          try:
+              return json.loads(out)
+          except ValueError:
+              return json.loads(out.splitlines()[-1])
+
+
+      def wait_until(what, fn, timeout=300, interval=10):
+          deadline = time.time() + timeout
+          while True:
+              try:
+                  if fn():
+                      return
+              except Exception as e:
+                  print(f"{what}: {e}")
+              if time.time() > deadline:
+                  raise Exception(f"timeout waiting for {what}")
+              time.sleep(interval)
+
+
+      # Ceph 21.2.0 registers Ganesha in the service map as nfs-ganesha/nfs.<rank>, which cephadm's stray check never
+      # matches, so after every mgr start it raises CEPHADM_STRAY_DAEMON for it (see known_stray in tests/lib.sh).
+      KNOWN_STRAY = re.compile(r"^stray daemon nfs-ganesha[.]nfs[.][0-9]+ on host ")
+
+
+      def only_known_stray():
+          for name, c in jsonq("ceph health detail -f json").get("checks", {}).items():
+              if c.get("muted"):
+                  continue
+              msgs = [d["message"] for d in c.get("detail", [])]
+              if name != "CEPHADM_STRAY_DAEMON" or not msgs or not all(KNOWN_STRAY.match(m) for m in msgs):
+                  return False
+          return True
+
+
       def wait_healthy(osds, timeout=2400, fatal=True):
           start = time.time()
           last = None
@@ -233,7 +324,9 @@ pkgs.testers.runNixOSTest {
                   if summary != last:
                       print(f"[{int(time.time() - start)}s] {summary}")
                       last = summary
-                  if health == "HEALTH_OK" and om["num_up_osds"] == osds and om["num_in_osds"] == osds:
+                  if om["num_up_osds"] == osds and om["num_in_osds"] == osds and (
+                      health == "HEALTH_OK" or (health == "HEALTH_WARN" and only_known_stray())
+                  ):
                       return True
               time.sleep(20)
           if fatal:
@@ -334,6 +427,144 @@ pkgs.testers.runNixOSTest {
 
       def unmount_clients():
           run(node1, "umount /mnt/cephfs; echo 0 > /sys/bus/rbd/remove_single_major")
+
+
+      # Services of tests/cephadm.sh. Placement: Ganesha on node1 (client: node2), rgw and the iSCSI gateway on
+      # node2 (clients: node1), so the traffic crosses the network and the memory is spread.
+      RGW_URL = f"http://{ip2}:8080"
+      NFS_PSEUDO = "/cephfs"
+      ISCSI_IQN = "iqn.2001-07.com.ceph:test"
+      INITIATOR = "${initiator}"
+      ISCSI_API = "http://admin:admin@127.0.0.1:5001/api"
+
+
+      def running(dtype):
+          try:
+              ps = jsonq(f"ceph orch ps --daemon-type {dtype} -f json")
+          except ValueError:  # "No daemons reported"
+              return []
+          return [d for d in ps if d.get("status_desc") == "running"]
+
+
+      def wait_running(dtype, timeout=600):
+          try:
+              wait_until(f"{dtype} running", lambda: running(dtype), timeout)
+          except Exception:
+              run(node1, f"cephadm shell -- ceph orch ps --daemon-type {dtype}")
+              raise
+
+
+      def daemons_running():
+          for t in ["rgw", "nfs", "iscsi", "rbd-mirror", "cephfs-mirror", "ceph-exporter"]:
+              wait_running(t)
+
+
+      def s3(op):
+          return node1.succeed(f"s3check {RGW_URL} {op}").strip()
+
+
+      def nfs_mount():
+          node2.succeed("mkdir -p /mnt/nfs")
+          node2.succeed(f"timeout 60 mount -t nfs -o nfsvers=4.1,proto=tcp,retry=0 {ip1}:{NFS_PSEUDO} /mnt/nfs")
+
+
+      def nfs_check(write):
+          # Ganesha picks a new export up through its RADOS watch and sits in its grace period after a start
+          wait_until("nfs mount", lambda: nfs_mount() or True, 300)
+          if write:
+              node2.succeed("dd if=/dev/urandom of=/mnt/nfs/nfsfile bs=1M count=32 conv=fsync status=none")
+              node2.succeed("md5sum < /mnt/nfs/nfsfile > /var/tmp/nfs.md5")
+              node2.succeed("umount /mnt/nfs")
+              nfs_mount()
+          out = node2.succeed("md5sum < /mnt/nfs/nfsfile")
+          assert out == node2.succeed("cat /var/tmp/nfs.md5"), out
+          node2.succeed("umount /mnt/nfs")
+
+
+      def iscsi_api(method, path, *data):
+          # the REST API answers with a JSON message and an HTTP status; show both, fail on 4xx/5xx
+          form = " ".join(f"-d {d}" for d in data)
+          rc, out = run(node2, f"curl -s -w '\\n%{{http_code}}' -X {method} {form} {ISCSI_API}/{path}")
+          assert rc == 0 and int(out.strip().splitlines()[-1]) < 400, f"{method} /api/{path}"
+
+
+      def iscsi_login():
+          ok(node1, f"iscsiadm -m node -T {ISCSI_IQN} -p {ip2}:3260 --login", 300)
+          for attempt in range(30):
+              dev = node1.succeed("lsblk -dn -o NAME,TRAN | awk '$2 == \"iscsi\" {print \"/dev/\" $1}' | head -n1").strip()
+              if dev:
+                  return dev
+              time.sleep(2)
+          run(node1, "lsblk -o NAME,TRAN,SIZE,TYPE; iscsiadm -m session -P3; dmesg | tail -n 40")
+          raise Exception("no iscsi disk appeared")
+
+
+      def iscsi_logout():
+          ok(node1, f"iscsiadm -m node -T {ISCSI_IQN} -p {ip2}:3260 --logout")
+
+
+      def iscsi_verify():
+          dev = iscsi_login()
+          node1.succeed(f"mkdir -p /mnt/iscsi && mount {dev} /mnt/iscsi")
+          out = node1.succeed("md5sum < /mnt/iscsi/file")
+          assert out == node1.succeed("cat /var/tmp/iscsi.md5"), out
+          node1.succeed("umount /mnt/iscsi")
+          iscsi_logout()
+
+
+      def iscsi_setup():
+          ceph("osd pool create iscsi 1")
+          ok(node1, "cephadm shell -- rbd pool init iscsi")
+          node1.succeed(
+              "printf '%s\\n' 'service_type: iscsi' 'service_id: gw' 'placement:' '  hosts: [node2]' 'spec:' "
+              "'  pool: iscsi' '  api_user: admin' '  api_password: admin' '  api_secure: false' "
+              f"'  api_port: 5001' '  trusted_ip_list: \"127.0.0.1,{ip1},{ip2}\"' > /var/tmp/iscsi.yaml"
+          )
+          ok(node1, "cephadm shell -m /var/tmp:/hostvar -- ceph orch apply -i /hostvar/iscsi.yaml")
+          wait_running("iscsi")
+          wait_until("gateway API", lambda: node2.succeed(f"curl -sf {ISCSI_API}/sysinfo/ip_addresses"), 180)
+          # the gateway is named by the API process's own FQDN
+          gw = json.loads(node2.succeed(f"curl -sf {ISCSI_API}/sysinfo/hostname"))["data"]
+          iscsi_api("PUT", f"target/{ISCSI_IQN}")
+          iscsi_api("PUT", f"gateway/{ISCSI_IQN}/{gw}", f"ip_address={ip2}", "skipchecks=true")
+          iscsi_api("PUT", "disk/iscsi/img", "mode=create", "size=1G")
+          iscsi_api("PUT", f"targetlun/{ISCSI_IQN}", "disk=iscsi/img")
+          iscsi_api("PUT", f"client/{ISCSI_IQN}/{INITIATOR}")
+          iscsi_api("PUT", f"clientlun/{ISCSI_IQN}/{INITIATOR}", "disk=iscsi/img")
+          iscsi_api("PUT", f"clientauth/{ISCSI_IQN}/{INITIATOR}", "username=testuser12", "password=testpass1234")
+
+
+      def iscsi_io():
+          ok(node1, f"iscsiadm -m discovery -t sendtargets -p {ip2}:3260")
+          for k, v in [("authmethod", "CHAP"), ("username", "testuser12"), ("password", "testpass1234")]:
+              ok(node1, f"iscsiadm -m node -T {ISCSI_IQN} -p {ip2}:3260 -o update -n node.session.auth.{k} -v {v}")
+          dev = iscsi_login()
+          node1.succeed(f"mkfs.ext4 -q {dev} && mkdir -p /mnt/iscsi && mount {dev} /mnt/iscsi")
+          node1.succeed("dd if=/dev/urandom of=/mnt/iscsi/file bs=1M count=16 conv=fsync status=none")
+          node1.succeed("md5sum < /mnt/iscsi/file > /var/tmp/iscsi.md5")
+          node1.succeed("umount /mnt/iscsi")
+          iscsi_logout()
+          # a fresh login reads it back; the data went through tcmu-runner's rbd handler into the pool
+          iscsi_verify()
+          assert jsonq("rbd du iscsi/img --format json")["images"][0]["used_size"] > 0
+
+
+      def dashboard_health():
+          url = jsonq("ceph mgr services")["dashboard"]
+          hdr = "-H 'Accept: application/vnd.ceph.api.v1.0+json' -H 'Content-Type: application/json'"
+          body = json.dumps({"username": "apiuser", "password": "Dash-pass-1"})
+          token = json.loads(node1.succeed(f"curl -sk --max-time 30 -X POST {hdr} -d '{body}' {url}api/auth"))["token"]
+          full = json.loads(node1.succeed(
+              f"curl -sk --max-time 60 {hdr} -H 'Authorization: Bearer {token}' {url}api/health/full"))
+          print(f"dashboard health/full: {full['health']['status']}")
+          assert len(full["osd_map"]["osds"]) == 6, full["osd_map"]
+
+
+      def exporters():
+          for m in hosts:
+              out = m.succeed("curl -sf --max-time 20 http://127.0.0.1:9926/metrics")
+              assert "\nceph_" in "\n" + out, out[:300]
+
 
 
       ec_md5 = lambda: quiet("bash -c 'rados -p ecpool get obj - | md5sum'")
@@ -460,6 +691,51 @@ pkgs.testers.runNixOSTest {
                   run(node1, "cephadm shell -- ceph log last 50 cephadm")
                   raise
 
+          with subtest("rgw: S3 put and get from the other node"):
+              ceph("orch apply rgw test --placement='1 node2' --port=8080")
+              wait_running("rgw")
+              wait_until("rgw answering", lambda: node1.succeed(f"curl -sf {RGW_URL}/"), 180)
+              ok(node1, "cephadm shell -- radosgw-admin user create --uid=t --display-name=t "
+                 "--access-key=AKIATEST --secret=SECRETTEST")
+              s3_md5 = s3("put")
+              assert s3("get") == s3_md5
+
+          with subtest("nfs: Ganesha on node1, kernel mount from node2"):
+              run(node1, "cephadm shell -- ceph mgr module enable nfs")
+              ceph("nfs cluster create nfs1 '1 node1'")
+              wait_running("nfs")
+              assert {d["hostname"] for d in running("nfs")} == {"node1"}
+              ceph(f"nfs export create cephfs --cluster-id nfs1 --pseudo-path {NFS_PSEUDO} --fsname cephfs")
+              try:
+                  nfs_check(True)
+              except Exception:
+                  # if Ganesha did not load the new export live, restart it
+                  ceph("orch restart nfs.nfs1")
+                  time.sleep(20)
+                  wait_running("nfs")
+                  nfs_check(True)
+
+          with subtest("iscsi: gateway on node2, iscsiadm login and I/O from node1"):
+              iscsi_setup()
+              iscsi_io()
+
+          with subtest("dashboard REST API"):
+              node1.succeed("printf %s Dash-pass-1 > /var/tmp/dashpw")
+              ok(node1, "cephadm shell -m /var/tmp:/hostvar -- ceph dashboard ac-user-create apiuser "
+                 "-i /hostvar/dashpw administrator")
+              wait_until("dashboard health", lambda: dashboard_health() or True, 300)
+
+          with subtest("rbd-mirror, cephfs-mirror and ceph-exporter"):
+              ceph("orch apply rbd-mirror --placement='1 node2'")
+              ceph("orch apply cephfs-mirror --placement='1 node2'")
+              ceph("orch apply ceph-exporter")
+              daemons_running()
+              wait_until("ceph-exporter metrics", lambda: exporters() or True, 120)
+
+          with subtest("health with the services"):
+              wait_healthy(6)
+              ceph("orch ps")
+
           with subtest("switch-to-configuration restarts no daemon"):
               for m in [node2, node1]:
                   switch(m)
@@ -490,6 +766,15 @@ pkgs.testers.runNixOSTest {
               out = node1.succeed("md5sum < /mnt/cephfs/file")
               assert out == node1.succeed("cat /var/tmp/cephfs.md5"), out
               unmount_clients()
+
+          with subtest("services survived the reboot"):
+              daemons_running()
+              wait_until("s3 get", lambda: s3("get") == s3_md5, 300)
+              nfs_check(False)
+              iscsi_verify()
+              wait_until("dashboard health", lambda: dashboard_health() or True, 300)
+              wait_until("ceph-exporter metrics", lambda: exporters() or True, 120)
+              wait_healthy(6)
 
           with subtest("switch-to-configuration after the reboot"):
               for m in [node2, node1]:
