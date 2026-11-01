@@ -33,8 +33,11 @@ def toplevel(base, entry):  # module name of a site-packages entry, or None
 
 def enum():
     ds = dists()
-    owned = set()  # top-level names of the files distributions installed
+    # top-level names that distributions own: their installed files, top_level.txt, or a name equal to theirs (EL's
+    # RPM-built distributions often have no RECORD)
+    owned = {n.replace("-", "_") for n in ds}
     for d in ds.values():
+        owned.update((d.read_text("top_level.txt") or "").split())
         for f in d.files or []:
             if f.parts and f.parts[0] != "..":
                 owned.add(f.parts[0].split(".", 1)[0])
