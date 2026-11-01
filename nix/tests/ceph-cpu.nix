@@ -3,7 +3,7 @@
 {
   pkgs,
   self,
-  # tentacle or umbrella (not run in CI: its Ceph is not built there)
+  # tentacle or umbrella
   track ? "tentacle",
 }:
 let

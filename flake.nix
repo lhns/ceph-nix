@@ -40,7 +40,7 @@
             ;
         };
         test-ceph-cpu = import ./nix/tests/ceph-cpu.nix { inherit pkgs self; };
-        # The same tests with the Umbrella image: run on the self-hosted builder, not by CI (ADR 0007).
+        # The same tests with the Umbrella image; Ceph comes from the ceph-umbrella action in CI (ADR 0010).
         test-ceph-host-umbrella = import ./nix/tests/ceph-host.nix {
           inherit
             pkgs
@@ -57,7 +57,6 @@
       };
 
       nixosModules = {
-        builder = import ./nix/modules/builder.nix;
         ceph-host = import ./nix/modules/ceph-host.nix;
         # Re-exported so existing users keep working; it lives in lhns/opencas-nix.
         opencas = opencas-nix.nixosModules.opencas;
@@ -89,33 +88,6 @@
             };
           in
           pkgs.writeText "ceph-host-eval" (
-            builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath
-          );
-        # Evaluates a system using the builder module, without building it.
-        builder-eval =
-          let
-            sys = nixpkgs.lib.nixosSystem {
-              inherit system;
-              modules = [
-                self.nixosModules.builder
-                {
-                  services.ceph-nix-builder = {
-                    enable = true;
-                    runner.tokenFile = "/run/secrets/runner-token";
-                    cache.signingKeyFile = "/run/secrets/cache-key";
-                    gcRoots = [ pkgs.hello ];
-                  };
-                  boot.loader.grub.enable = false;
-                  fileSystems."/" = {
-                    device = "none";
-                    fsType = "tmpfs";
-                  };
-                  system.stateVersion = "26.05";
-                }
-              ];
-            };
-          in
-          pkgs.writeText "builder-eval" (
             builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath
           );
         formatting =

@@ -1,30 +1,34 @@
 # Slow NixOS VM tests (outside `nix flake check`): the negative control (upstream's image fails on a CPU without
-# AVX2, ours runs) and the cephadm host module with our image on such a CPU, on two nodes (~30 minutes).
+# AVX2, ours runs) and the cephadm host module with our image on such a CPU, on two nodes (~30 minutes), for both
+# Ceph tracks. The Umbrella ones get Ceph from the ceph-umbrella action (ADR 0010).
 name: vm-tests
 on:
   workflow_dispatch:
   # Skip pushes that cannot change what these VMs run. No concurrency cancelling: a superseded run is cancelled by
   # hand, never automatically.
   push:
-    branches: [main]
     paths-ignore: &skip
       - docs/**
       - "**.md"
       - LICENSE
       - tests/*.sh  # not tests/smoke.c: nix/pkgs/ceph-smoke.nix builds it
       - tests/*.txt
+      - tests/*.json
       - .github/dependabot.yml
       - .github/workflows/ceph.yml
+      - .github/workflows/ceph-track.yml
       - .github/workflows/nix.yml
   pull_request:
     paths-ignore: *skip
 
 jobs:
   vm-test:
+    # same-repo PRs are covered by the push run (the Ceph cache of a branch is not visible to its PR runs)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
     strategy:
       fail-fast: false
       matrix:
-        test: [test-ceph-cpu, test-ceph-host]
+        test: [test-ceph-cpu, test-ceph-host, test-ceph-cpu-umbrella, test-ceph-host-umbrella]
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
@@ -42,6 +46,8 @@ jobs:
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
+      - uses: ./.github/actions/ceph-umbrella
+        if: endsWith(matrix.test, '-umbrella')
       - run: nix build -L --no-link .#${{ matrix.test }}
       - if: always()
         run: df -h /

@@ -41,34 +41,6 @@ ceph orch daemon add osd <host>:/dev/<disk>  # or: ceph orch apply osd --all-ava
 Not supported: `system.etc.overlay.enable`. The VM test is `nix build .#test-ceph-host` (about 30 minutes): cephadm on NixOS with our image on a CPU without
 AVX2, with `.#test-ceph-cpu` as negative control (upstream's image cannot start there).
 
-## Builder
-
-`nixosModules.builder` turns a NixOS machine into the CI builder (ephemeral GitHub runners with label `nix-builder`,
-KVM, a signed binary cache via harmonia; see [ADR 0007](docs/adr/0007-self-hosted-builder-and-cache.md)).
-
-```nix
-{
-  inputs.ceph-nix.url = "github:lhns/ceph-nix";
-  # in the machine's modules:
-  imports = [ ceph-nix.nixosModules.builder ];
-  services.ceph-nix-builder = {
-    enable = true;
-    runner.tokenFile = "/var/lib/secrets/ceph-nix-runner-token";
-    cache.signingKeyFile = "/var/lib/secrets/ceph-nix-cache-1.secret";
-    cache.openFirewall = true;
-  };
-}
-```
-
-- Runner token: a fine-grained PAT with read/write on the repository's "self-hosted runners" (preferred, since
-  ephemeral runners re-register constantly; a registration token expires after an hour). Store it as a single line
-  without a newline: `echo -n '<token>' > /var/lib/secrets/ceph-nix-runner-token`.
-- Signing key: `nix key generate-secret --key-name ceph-nix-cache-1 > /var/lib/secrets/ceph-nix-cache-1.secret`;
-  the public key is `nix key convert-secret-to-public < /var/lib/secrets/ceph-nix-cache-1.secret`.
-- Clients: add `extra-substituters = http://<builder>:5000` and
-  `extra-trusted-public-keys = ceph-nix-cache-1:<public key>` to `nix.conf`.
-- Other options: `runner.count`, `runner.url`, `cache.port`, `gcRoots` (store paths exempt from the weekly GC).
-
 ## Disk locate LED
 
 `ceph orch device light on|off <devid>` (and the dashboard's identify button) runs, on the disk's host,
@@ -99,12 +71,12 @@ new users can depend on opencas-nix directly. Its README has the options and a u
 
 ## Tracks
 
-- Tentacle (20.2.x): nixpkgs' Ceph, so cached; `.#ceph-image-tentacle`. CI builds and tests only this one.
+- Tentacle (20.2.x): nixpkgs' Ceph, so cached; `.#ceph-image-tentacle`.
 - Umbrella (21.2.0): nixpkgs' Ceph scope with the source bumped ([`nix/pkgs/ceph`](nix/pkgs/ceph/default.nix)),
   `.#ceph-image` (also `.#ceph-image-umbrella`, `.#ceph-umbrella`, `.#test-ceph-cpu-umbrella`,
-  `.#test-ceph-host-umbrella`). A from-source build takes hours (2.5 h on 5 cores), which GitHub runners cannot do
-  without a cache, and no check depends on it. It is built and tested on the self-hosted builder
-  ([ADR 0007](docs/adr/0007-self-hosted-builder-and-cache.md)); until that exists, by hand there.
+  `.#test-ceph-host-umbrella`). A from-source build takes about 1.5 h on a GitHub-hosted runner; CI builds it once per
+  derivation and keeps the result in the Actions cache ([ADR 0010](docs/adr/0010-hosted-runners-and-actions-cache.md)).
+  CI tests both tracks the same way and the migration from one to the other.
 
 ## Releases
 
