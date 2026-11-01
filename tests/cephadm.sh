@@ -3,8 +3,8 @@
 #   cephadm.sh IMAGE_TARBALL        docker-archive tarball, optionally zstd-compressed
 # Env: SKIP_ISCSI=1           skip the iSCSI gateway leg (images without ceph-iscsi)
 #      ARTIFACT_DIR            where logs go on failure (default ./cephadm-logs)
-# Allowed health warnings: none, except ALLOWED_WARNINGS (space separated check names) at the end. HEALTH_OK is
-# required after the OSDs are up.
+# Allowed health warnings: none, except ALLOWED_WARNINGS (space separated check names) and the known nfs-ganesha
+# stray (tests/lib.sh) at the end. HEALTH_OK is required after the OSDs are up.
 set -Eeuo pipefail
 tarball=$(realpath "$1")
 here=$(cd "$(dirname "$0")" && pwd)
@@ -181,6 +181,10 @@ sudo sha256sum -c "$work/nfs.sum"
 sudo umount /mnt/nfs
 endstep
 
+step "nfs: service map and cephadm's stray check (mgr failover)"
+stray_check_now
+endstep
+
 step "rbd-mirror and cephfs-mirror"
 tbx ceph orch apply rbd-mirror --placement=1
 tbx ceph orch apply cephfs-mirror --placement=1
@@ -300,14 +304,7 @@ sudo losetup -d "$bdev"
 endstep
 
 step "final health"
-# Ceph 21.2.0 (upstream's image too, checked): ganesha registers as nfs.0 in the service map, which cephadm's stray
-# check does not match to its nfs.<cluster>.<rank>... daemon, so CEPHADM_STRAY_DAEMON appears once the check runs.
 allowed=${ALLOWED_WARNINGS-}
-health_ok_allowed() {
-	local n
-	n=$(sudo podman exec toolbox ceph health detail -f json | jq --arg a "$allowed" '[.checks // {} | keys[] | select(. as $k | ($a | split(" ") | index($k)) == null)] | length') || return 1
-	[ "$n" = 0 ]
-}
 wait_for 300 "healthy (allowed: ${allowed:-none})" health_ok_allowed || { tbx ceph health detail; exit 1; }
 endstep
 echo "RESULT cephadm -> OK"

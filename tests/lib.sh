@@ -28,6 +28,44 @@ wait_for() { # wait_for SECONDS DESCRIPTION CMD...
 }
 osds_up() { [ "$(sudo podman exec toolbox ceph osd stat -f json | jq .num_up_osds)" = 3 ]; }
 health_ok() { [ "$(sudo podman exec toolbox ceph health)" = HEALTH_OK ]; }
+# Ceph 21.2.0's cephadm writes `CEPH { register_service = true; nodeid = "<rank>"; }` into ganesha.conf, so Ganesha
+# 9.x registers in the service map as nfs-ganesha/nfs.<rank>. cephadm's stray check never matches that to its
+# nfs.<cluster>.<rank>.<gen>.<host>.<suffix> daemon, so after every mgr (re)start, when the check runs,
+# CEPHADM_STRAY_DAEMON lists nfs-ganesha.nfs.<rank>. Upstream's quay.io/ceph/ceph:v21.2.0 does the same (same mgr
+# code, same Ganesha 9.16); Ceph main reverted the template for it (ceph/ceph#69042). Allowed with exactly that detail.
+known_stray='^stray daemon nfs-ganesha[.]nfs[.][0-9]+ on host '
+unexpected_checks() { # unexpected_checks [ALLOWED]: health checks outside ALLOWED (check names), the known stray aside
+	sudo podman exec toolbox ceph health detail -f json | jq -r --arg a "${1-}" --arg re "$known_stray" '
+		.checks // {} | to_entries[]
+		| select(.key as $k | ($a | split(" ") | index($k)) == null)
+		| select(.key != "CEPHADM_STRAY_DAEMON" or ([.value.detail[]?.message] | length == 0 or any(test($re) | not)))
+		| .key'
+}
+health_ok_allowed() { # no health check outside $allowed and the known stray
+	local u
+	u=$(unexpected_checks "${allowed-}") && [ -z "$u" ]
+}
+known_stray_raised() {
+	sudo podman exec toolbox ceph health detail -f json | jq -e --arg re "$known_stray" \
+		'[.checks.CEPHADM_STRAY_DAEMON.detail[]?.message] | length > 0 and all(test($re))'
+}
+# Runs cephadm's stray check now (it runs at mgr start, then every 30 min) and checks it against the service map:
+# Ganesha registered there (Umbrella) must come out as the known stray, else (Tentacle) nothing to see.
+stray_check_now() {
+	local reg
+	reg=$(tbx ceph service dump -f json | jq -r '.services["nfs-ganesha"].daemons // {} | keys[] | select(. != "summary")')
+	echo "nfs-ganesha in the service map: ${reg:-none}"
+	tbx ceph mgr fail
+	sleep 10
+	wait_for 180 "orchestrator after mgr failover" tbx ceph orch status
+	[ -n "$reg" ] || return 0
+	wait_for 180 "CEPHADM_STRAY_DAEMON for nfs-ganesha" known_stray_raised || {
+		echo "cephadm no longer flags Ganesha's service map entry as stray: drop known_stray (tests/lib.sh)"
+		tbx ceph health detail
+		return 1
+	}
+	tbx ceph health detail
+}
 mds_active() { sudo podman exec toolbox ceph fs status cephfs -f json | jq -e '[.mdsmap[] | select(.state == "active")] | length >= 1'; }
 daemon_running() { # daemon_running TYPE
 	[ "$(sudo podman exec toolbox ceph orch ps --daemon-type "$1" -f json | jq '[.[] | select(.status_desc == "running")] | length')" -ge 1 ]

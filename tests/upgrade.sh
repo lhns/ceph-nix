@@ -10,10 +10,10 @@
 #                       a reference; empty = skip). Only meaningful at the same version: a downgrade is refused.
 #      UPGRADE_TIMEOUT  seconds to wait for each upgrade (default 3000)
 #      ARTIFACT_DIR     where logs go (default ./upgrade-logs); before/ and after/ hold the compared state
-# Health: strictly HEALTH_OK before the upgrade. Afterwards only ALLOWED_WARNINGS (default: the two
+# Health: HEALTH_OK before the upgrade, the known nfs-ganesha stray aside (tests/lib.sh: Ceph 21.2.0 raises it after
+# any mgr restart, upstream's image included). Afterwards also ALLOWED_WARNINGS (default: the two
 # AUTH_INSECURE_KEYS_* checks cephadm's Tentacle upgrade leaves behind after rotating daemon keys; the admin clears
-# them once old-style keys are gone; and CEPHADM_STRAY_DAEMON, which Ceph 21.2.0 raises for its own nfs.0 ganesha
-# registration, upstream's image included). Transient UPGRADE_NO_STANDBY_MGR is only logged.
+# them once old-style keys are gone). Transient UPGRADE_NO_STANDBY_MGR is only logged.
 # Mgr modules: no module may be unable to run after the upgrade that could run before.
 set -Eeuo pipefail
 from=$1
@@ -21,7 +21,7 @@ tarball=$(realpath "$2")
 here=$(cd "$(dirname "$0")" && pwd)
 art=${ARTIFACT_DIR:-$PWD/upgrade-logs}
 limit=${UPGRADE_TIMEOUT:-3000}
-allowed=${ALLOWED_WARNINGS-AUTH_INSECURE_KEYS_ALLOWED AUTH_INSECURE_KEYS_CREATABLE CEPHADM_STRAY_DAEMON}
+allowed=${ALLOWED_WARNINGS-AUTH_INSECURE_KEYS_ALLOWED AUTH_INSECURE_KEYS_CREATABLE}
 work=$(sudo mktemp -d /mnt/upgrade-test.XXXX)
 sudo chown "$USER" "$work"
 mkdir -p "$art/before" "$art/after"
@@ -104,12 +104,8 @@ upgrade_wait() {
 	echo "upgrade timed out after ${limit}s"
 	return 1
 }
-# no health check outside $allowed
-health_ok_allowed() {
-	local n
-	n=$(sudo podman exec toolbox ceph health detail -f json | jq --arg a "$allowed" '[.checks // {} | keys[] | select(. as $k | ($a | split(" ") | index($k)) == null)] | length') || return 1
-	[ "$n" = 0 ]
-}
+# HEALTH_OK apart from the known nfs-ganesha stray (stray_check_now raises it before the upgrade)
+health_ok_stray() { local allowed=; health_ok_allowed; }
 settle() { # settle SECONDS [health_fn]: 3 OSDs up and healthy
 	wait_for 600 "3 OSDs up" osds_up
 	wait_for "${1:-900}" "healthy (${2:-health_ok})" "${2:-health_ok}" || { tbx ceph health detail; return 1; }
@@ -243,7 +239,9 @@ tbx ceph config set global mon_max_pg_per_osd 1000
 tbx ceph config set mgr mgr_stats_period 7
 tbx ceph mgr module enable iostat
 tbx ceph mgr module enable insights
-settle 600
+# the FROM image's stray verdict on its own Ganesha, now rather than at whichever mgr restart comes first
+stray_check_now
+settle 600 health_ok_stray
 echo "== before"
 tbx ceph -s
 orch_ps | jq -r '.[] | [.daemon_name, .version, .status_desc, .container_image_name] | @tsv'
