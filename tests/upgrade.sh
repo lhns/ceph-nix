@@ -10,6 +10,8 @@
 #                       a reference; empty = skip). Only meaningful at the same version: a downgrade is refused.
 #      UPGRADE_TIMEOUT  seconds to wait for each upgrade (default 3000)
 #      ARTIFACT_DIR     where logs go (default ./upgrade-logs); before/ and after/ hold the compared state
+#      NFS_STALE_GRACE  1 for Tentacle -> Umbrella: expect the old ganesha's key in the grace table and apply the README
+#                       procedure that removes it; unset: no such key may exist
 # Health: HEALTH_OK before the upgrade, the known nfs-ganesha stray aside (tests/lib.sh: Ceph 21.2.0 raises it after
 # any mgr restart, upstream's image included). Afterwards also ALLOWED_WARNINGS (default: the two
 # AUTH_INSECURE_KEYS_* checks cephadm's Tentacle upgrade leaves behind after rotating daemon keys; the admin clears
@@ -230,7 +232,11 @@ if ! wait_for 30 "nfs live export reload" mount_nfs; then
 	wait_for 120 "nfs mount" mount_nfs
 fi
 put_files /mnt/nfs/nfsdata "$work/nfs.md5"
-sudo umount /mnt/nfs
+# On the NFS_STALE_GRACE legs the mount stays up across the upgrade like a production client (checked, not gating,
+# afterwards). Not on the others: with it kept, the Tentacle leg hung twice in 3 runs on an OSD container stuck in D
+# state during the mon/osd restart check (cause not found; never without it).
+keep_mount=${NFS_STALE_GRACE-}
+[ -n "$keep_mount" ] || sudo umount /mnt/nfs
 # config options and mgr modules that must survive the switch
 tbx ceph config set osd osd_scrub_sleep 0.2
 tbx ceph config set mon mon_allow_pool_delete true
@@ -285,6 +291,42 @@ got_version=$(jq -r '.overall | keys[0]' "$art/after/versions.json" | sed -E 's/
 [ "$(tbx ceph config get mgr container_image | tr -d '\r')" != "$from_image" ]
 endstep
 
+step "after: NFS grace table"
+# Ganesha 5.9 (Tentacle) is in the grace table as "<rank>", 9.16 (Umbrella) as "node<rank>": it prepends "node" to
+# cephadm's numeric nodeid, and so does its ganesha-rados-grace, which therefore cannot name the old key. On the way
+# out the 5.9 daemon starts a grace period under its old name, which nobody lifts: the export stays in grace and reads
+# hang. The fix is the operator procedure in README ("Migrating 20.2.4 -> 21.2.0"), run here verbatim.
+# NFS_STALE_GRACE=1: this leg must find such a key (when it stops, upstream has fixed it); otherwise it must not.
+grace_dump() { tbx ganesha-rados-grace --pool .nfs --ns nfs1 dump; }
+grace_dump | tee "$art/after/grace-before-fix.txt"
+sudo sh -c "grep -H nodeid /var/lib/ceph/$fsid/nfs.*/etc/ganesha/ganesha.conf" || true
+# --- README procedure, for cluster c=nfs1 (dumps above and below). Stale: "<k>" next to a live "node<k>"; on
+# Tentacle alone "0" is the live key.
+c=nfs1
+keys=$(tbx rados -p .nfs -N "$c" listomapkeys grace)
+stale=$(for k in $keys; do if grep -qx "node$k" <<<"$keys"; then echo "$k"; fi; done)
+echo "stale grace keys: [${stale}]"
+if [ -n "${NFS_STALE_GRACE-}" ] && [ -z "$stale" ]; then
+	summary "NFS: no stale numeric key in the grace table; the README migration step may be obsolete"
+	exit 1
+elif [ -z "${NFS_STALE_GRACE-}" ] && [ -n "$stale" ]; then
+	summary "NFS: unexpected stale grace keys: $stale"
+	exit 1
+fi
+if [ -n "$stale" ]; then
+	# the untouched state: the new daemon never lifts and logs nothing about it
+	sudo "$work/cephadm" logs --name "$(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].daemon_name')" 2>&1 |
+		grep -iE 'grace' | tail -20 || true
+	for k in $stale; do tbx rados -p .nfs -N "$c" rmomapkey grace "$k"; done
+	for k in $stale; do tbx ganesha-rados-grace --pool .nfs --ns "$c" start "$k"; done
+	# ---
+	grace_lifted() { grace_dump | grep -qx 'cur=[0-9]* rec=0'; }
+	wait_for 180 "grace lifted" grace_lifted || { grace_dump; exit 1; }
+	grace_dump
+	summary "NFS: removed stale grace keys [$(tr '\n' ' ' <<<"$stale")] (README procedure); grace lifted"
+fi
+endstep
+
 step "after: data intact"
 tbx rados -p ecpool get obj /tmp/ec.out
 sudo podman cp toolbox:/tmp/ec.out "$work/ec.out"
@@ -296,6 +338,17 @@ key=$(tbx ceph auth get-key client.admin)
 wait_for 180 "cephfs mount" mount_cephfs
 check_files /mnt/cephfs/fsdata "$work/cephfs.md5"
 sudo umount /mnt/cephfs
+# a restarted ganesha is in its grace period for a while; reads must come back within a few minutes, never hang
+nfs_read() { (cd /mnt/nfs/nfsdata && sudo timeout -s KILL 20 md5sum -c "$work/nfs.md5"); }
+if [ -n "$keep_mount" ]; then
+	if wait_for 180 "nfs read on the mount kept across the upgrade" nfs_read; then
+		summary "NFS: the mount kept across the upgrade reads its data"
+	else
+		summary "NFS: the mount kept across the upgrade is unreadable (not gating; a fresh mount must work)"
+		sudo timeout 20 dmesg | grep -iE 'nfs|rpc' | tail -20 || true
+	fi
+	sudo timeout -s KILL 60 umount /mnt/nfs || sudo umount -f -l /mnt/nfs || true
+fi
 wait_for 120 "nfs mount" mount_nfs || {
 	echo "nfs mount failed after the upgrade; ganesha state:"
 	tbx ceph nfs cluster info nfs1 || true
@@ -305,25 +358,13 @@ wait_for 120 "nfs mount" mount_nfs || {
 	sudo "$work/cephadm" logs --name "$(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].daemon_name')" 2>&1 | tail -80 || true
 	exit 1
 }
-# a restarted ganesha is in its grace period for a while; reads must come back within a few minutes, never hang
-nfs_read() { (cd /mnt/nfs/nfsdata && sudo timeout -s KILL 20 md5sum -c "$work/nfs.md5"); }
 nfs_failed=
-# Across Tentacle -> Umbrella the old ganesha node (id "0") stays in the grace table needing grace, so the new ganesha
-# (node0) never lifts it ("Attempt to lift grace failed"; seen with upstream's own images in the control leg, which
-# fails identically) and reads hang. NFS_UNREADABLE_OK=1 logs that instead of failing, for those legs only.
 if ! wait_for 300 "nfs read" nfs_read; then
-	if [ -n "${NFS_UNREADABLE_OK-}" ]; then
-		summary "NFS: unreadable after the upgrade (known: upstream's 20.2.4 -> 21.2.0 does the same); not gating"
-		nfs_unreadable=1
-	else
-		nfs_failed=1
-	fi
-fi
-if [ -n "$nfs_failed" ] || [ -n "${nfs_unreadable-}" ]; then
-	[ -z "$nfs_failed" ] || summary "NFS: data unreadable after the upgrade (ganesha $(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].version'))"
+	nfs_failed=1
+	summary "NFS: data unreadable after the upgrade (ganesha $(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].version'))"
 	tbx ceph orch ps --daemon-type nfs || true
 	tbx rados -p .nfs -N nfs1 ls || true
-	tbx ganesha-rados-grace --pool .nfs --ns nfs1 --cephconf /etc/ceph/ceph.conf || true
+	grace_dump || true
 	sudo timeout 60 "$work/cephadm" logs --name "$(tbx ceph orch ps --daemon-type nfs -f json | jq -r '.[0].daemon_name')" 2>&1 | tail -150 || true
 	sudo timeout 20 dmesg | grep -iE 'nfs|rpc' | tail -30 || true
 	sudo umount -f -l /mnt/nfs || true
