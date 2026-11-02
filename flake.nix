@@ -40,7 +40,7 @@
             ;
         };
         test-ceph-cpu = import ./nix/tests/ceph-cpu.nix { inherit pkgs self; };
-        # The same tests with the Umbrella image; Ceph comes from the ceph-umbrella action in CI (ADR 0010).
+        # The same tests with the Umbrella image; Ceph comes from the ceph-build action in CI (ADR 0011).
         test-ceph-host-umbrella = import ./nix/tests/ceph-host.nix {
           inherit
             pkgs

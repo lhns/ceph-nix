@@ -25,8 +25,8 @@ Parity is checked in four dimensions:
 4. Linkage: the `DT_NEEDED` sonames (versions dropped) of ceph-osd, -mon, -mgr, -mds, radosgw, rbd-mirror, ceph-fuse,
    rbd-nbd and of librados, librbd, libcephfs, librgw, libcephsqlite, libradosstriper and libceph-common
    (`tests/elfneeded.py`, run with each image's own python3). A soname upstream links directly and ours does not reach
-   at all is a gap; one ours reaches through a shared library (zlib, lz4 and snappy through our shared rocksdb and
-   boost) is only reported. Sonames only ours links (jemalloc, shared boost, rocksdb, liburing) are reported.
+   at all is a gap; one ours reaches through a shared library (zlib, lz4 and snappy through shared boost) is only
+   reported. Sonames only ours links (shared boost) are reported.
 
 `tests/parity.sh` enforces (1), (3) and (4) with an allowlist. Every accepted deviation is a line in
 `tests/parity-allow.txt` with its reason, so a deviation is reviewed in the diff that adds it.
@@ -36,8 +36,7 @@ rpm and libselinux (no package manager or SELinux policy tooling in a Nix image)
 that nothing in Ceph imports (cloudpickle, ply, urwid, kmod, cachetools, rsa, chardet, pysocks, toml, dbus-python,
 systemd-python, backports-tarfile); ceph-iscsi, which is installed without dist-info metadata.
 
-Accepted deviations of (4), as `so:<binary>:<soname>` entries: tcmalloc (see the allocator below); on Tentacle
-libthrift and libcurl (Jaeger) and libpmem/libpmemobj (RBD RWL cache); on Umbrella libfuse3.
+Accepted deviations of (4), as `so:<binary>:<soname>` entries: on Tentacle libthrift and libcurl (Jaeger).
 
 ### Accepted build deviations
 
@@ -45,24 +44,24 @@ Audit of 2026-11: `ceph.spec.in` at each image's `CEPH_SHA1` (Tentacle v20.2.4 `
 `b060042d`, el10) against nixpkgs' `pkgs/by-name/ce/ceph/ceph.nix` at the `flake.lock` revision and
 `nix/pkgs/ceph/default.nix`.
 
-- Allocator: upstream builds with tcmalloc (gperftools), nixpkgs picks jemalloc. A real deviation (memory behaviour,
-  profiling and tuning differ), fixed in plan P2 by switching to tcmalloc; the linkage allowlist entry goes then.
-- `WITH_SYSTEM_{BOOST,ROCKSDB,ZSTD,GTEST,LIBURING}=true`: upstream's spec leaves them off and bundles Ceph's pinned
-  copies (statically linked), nixpkgs uses shared system ones (boost 1.87, rocksdb 7.9.2, ...). Accepted: same
-  functionality, shown only as direct-vs-transitive sonames; rocksdb is covered below. `WITH_SYSTEM_ARROW` and
-  `WITH_SYSTEM_UTF8PROC` are on in the spec too.
-- rocksdb: Ceph's fork `ceph/rocksdb` (submodule `src/rocksdb`) is 7.9.2 at both SHAs (Tentacle `9fa49901`, Umbrella
-  `24ea3587`); nixpkgs' `ceph-rocksdb` is facebook/rocksdb v7.9.2. Same version, but ours lacks Ceph's patches to the
-  fork (their size is not audited). Accepted for now; replacing the source with the fork is a rebuild of Ceph.
+- Allocator: upstream builds with tcmalloc (gperftools), nixpkgs picks jemalloc. Fixed (ADR 0011): `jemalloc = null`,
+  `-DALLOCATOR=tcmalloc`; tests/cephadm.sh checks `ceph tell osd.0 heap stats` and the memory autotuning.
+- `WITH_SYSTEM_{BOOST,ZSTD,GTEST}=true`: upstream's spec leaves them off and bundles Ceph's pinned copies (statically
+  linked), nixpkgs uses shared system ones (boost 1.87, ...). Accepted: same functionality, shown only as
+  direct-vs-transitive sonames. `WITH_SYSTEM_ARROW` and `WITH_SYSTEM_UTF8PROC` are on in the spec too.
+- rocksdb and liburing: upstream links Ceph's fork `ceph/rocksdb` (submodule `src/rocksdb`, 7.9.2 plus Ceph's patches)
+  and Ceph's liburing statically. Fixed (ADR 0011): `WITH_SYSTEM_ROCKSDB=false` and `WITH_SYSTEM_LIBURING=false`
+  (the bundled rocksdb's CMake needs the static liburing); BlueStore runs the same rocksdb code as upstream.
 - `WITH_JAEGER=false`: the el9 spec builds Jaeger tracing (libthrift, libcurl linked); Umbrella's spec forces it off
   (crimson), so only Tentacle differs. Tracing export is off by default (`jaeger_tracing_enable`); nixpkgs cannot
   build the bundled opentelemetry-cpp. Accepted, allowlisted `[el9]`.
-- `WITH_RBD_RWL` (pmdk): upstream's Tentacle rbd-mirror links libpmem and libpmemobj, nixpkgs does not set the flag, so
-  the RBD persistent write-back cache in RWL mode (needs persistent memory) is probably unavailable in ours. Umbrella
-  shows no such link on either side. The SSD mode is unaffected. Accepted: PMEM hosts are rare in cephadm and Rook
-  deployments; revisit on request.
-- fuse: Tentacle's spec uses fuse 2 like nixpkgs; Umbrella's spec uses fuse3 (`pkgconfig(fuse3)`), ours fuse 2. A gap
-  to close by adding `fuse3` to the Umbrella override's buildInputs (rebuild of Ceph); allowlisted `[el10]` meanwhile.
+- RBD persistent write-back cache: nixpkgs sets neither `WITH_RBD_SSD_CACHE` nor `WITH_RBD_RWL` (both default OFF),
+  so neither cache mode was available, not only the one needing persistent memory. Fixed (ADR 0011): the SSD mode on
+  both tracks; the RWL mode on Tentacle, where upstream's el9 rbd-mirror links the distribution's shared libpmem and
+  libpmemobj, with `nix/pkgs/pmdk.nix` (pmdk is not in nixpkgs). Umbrella's spec has no system pmdk and no such link,
+  so it keeps the SSD mode only.
+- fuse: Tentacle's spec uses fuse 2 like nixpkgs; Umbrella's spec uses fuse3 (`pkgconfig(fuse3)`). Fixed (ADR 0011):
+  Umbrella is built with `fuse = fuse3`.
 - `WITH_TESTS=false`, `WITH_CATCH2=false` (Umbrella clones Catch2 at configure time): the spec builds the tests into
   the separate ceph-test package, which the image does not install. Accepted.
 - `WITH_UADK=false`: aarch64 only. `WITH_MGR_DASHBOARD_FRONTEND=false`: the spec passes OFF too; the prebuilt frontend

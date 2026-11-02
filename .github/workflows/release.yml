@@ -42,13 +42,14 @@ jobs:
       fail-fast: false
       matrix:
         # One entry per released track. The Ceph version comes from the image itself (its version label).
-        # Umbrella's Ceph comes from the ceph-umbrella action (a from-source build, cached, ADR 0010).
+        # Ceph comes from the ceph-build action (a from-source build, cached, ADR 0011).
         include:
           - package: ceph-image-tentacle
             companions: tcmu-runner-tentacle ceph-iscsi-tentacle libstoragemgmt-tentacle
+            track: tentacle
           - package: ceph-image-umbrella
             companions: tcmu-runner-umbrella ceph-iscsi-umbrella libstoragemgmt-umbrella nfs-ganesha-umbrella
-            ceph-umbrella: true
+            track: umbrella
     steps:
       - uses: actions/checkout@v7
         with:
@@ -58,8 +59,9 @@ jobs:
         with:
           extra_nix_config: |
             system-features = nixos-test benchmark big-parallel kvm
-      - uses: ./.github/actions/ceph-umbrella
-        if: matrix.ceph-umbrella
+      - uses: ./.github/actions/ceph-build
+        with:
+          track: ${{ matrix.track }}
       - name: nix build
         run: nix build -L --no-link --print-out-paths ".#${{ matrix.package }}" | tee stream.path
       - name: stream the image twice

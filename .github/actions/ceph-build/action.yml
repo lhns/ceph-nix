@@ -1,15 +1,21 @@
-name: ceph-umbrella
+name: ceph-build
 description: >-
-  Makes .#ceph-umbrella available in the Nix store without rebuilding it when the same derivation was built before
-  (ADR 0010). Run after Nix is installed, in a checkout.
+  Makes .#ceph-<track> available in the Nix store without rebuilding it when the same derivation was built before
+  (ADR 0011). Run after Nix is installed, in a checkout.
+inputs:
+  track:
+    description: tentacle or umbrella
+    required: true
 runs:
   using: composite
   steps:
     - name: derivation and cache key
       id: key
       shell: bash # with pipefail
+      env:
+        TRACK: ${{ inputs.track }}
       run: |
-        drv=$(nix path-info --derivation .#ceph-umbrella)
+        drv=$(nix path-info --derivation ".#ceph-$TRACK")
         hash=${drv#/nix/store/}
         hash=${hash%%-*}
         echo "drv=$drv"
@@ -18,8 +24,8 @@ runs:
         probe=${probe%/bin/*}
         nix-store --export "$probe" | zstd -c | zstd -dc | nix-store --import
         nix config show trusted-users
-        echo "key=ceph-umbrella-$hash" | tee -a "$GITHUB_OUTPUT"
-        echo "dir=$RUNNER_TEMP/ceph-umbrella-cache" | tee -a "$GITHUB_OUTPUT"
+        echo "key=ceph-$TRACK-$hash" | tee -a "$GITHUB_OUTPUT"
+        echo "dir=$RUNNER_TEMP/ceph-$TRACK-cache" | tee -a "$GITHUB_OUTPUT"
     - name: restore the Nix cache of Ceph
       id: restore
       uses: actions/cache/restore@v6
@@ -38,15 +44,16 @@ runs:
         ls -lh "$DIR"
         xargs -a "$DIR/subst.txt" nix-store --realise >/dev/null || echo "::warning::cannot substitute the cached closure"
         zstd -dc "$DIR/keep.nar.zst" | nix-store --import >/dev/null || echo "::warning::cannot import the cached Ceph"
-    - name: build or reuse .#ceph-umbrella
+    - name: build or reuse the Ceph derivation
       id: build
       shell: bash # with pipefail
       env:
+        TRACK: ${{ inputs.track }}
         KEY: ${{ steps.key.outputs.key }}
         HIT: ${{ steps.restore.outputs.cache-hit }}
       run: |
         # every output of the derivation (out, lib, dev, ...): the image needs them all
-        nix build --dry-run ".#ceph-umbrella^*" 2>&1 | tee "$RUNNER_TEMP/dry.log"
+        nix build --dry-run ".#ceph-$TRACK^*" 2>&1 | tee "$RUNNER_TEMP/dry.log"
         if grep -q 'will be built' "$RUNNER_TEMP/dry.log"; then
           built=true
           [ "$HIT" != true ] || echo "::warning::cache hit on $KEY, but Nix still has to build Ceph: the cache is incomplete"
@@ -54,18 +61,19 @@ runs:
           built=false
         fi
         start=$SECONDS
-        nix build -L --no-link --print-out-paths ".#ceph-umbrella^*" | tee "$RUNNER_TEMP/ceph-umbrella.outs"
+        nix build -L --no-link --print-out-paths ".#ceph-$TRACK^*" | tee "$RUNNER_TEMP/ceph-$TRACK.outs"
         if [ "$built" = true ]; then verb="built from source"; else verb="restored from the cache"; fi
-        echo "### Ceph Umbrella $verb in $((SECONDS - start))s (key $KEY)" | tee -a "$GITHUB_STEP_SUMMARY"
+        echo "### Ceph $TRACK $verb in $((SECONDS - start))s (key $KEY)" | tee -a "$GITHUB_STEP_SUMMARY"
         echo "built=$built" >>"$GITHUB_OUTPUT"
     - name: export what cache.nixos.org lacks
       if: steps.build.outputs.built == 'true'
       shell: bash # with pipefail
       env:
         DIR: ${{ steps.key.outputs.dir }}
+        TRACK: ${{ inputs.track }}
       run: |
         # closure of the outputs; a path is substitutable if cache.nixos.org answers 200 for it
-        nix path-info -r $(cat "$RUNNER_TEMP/ceph-umbrella.outs") | sort -u >"$RUNNER_TEMP/closure.txt"
+        nix path-info -r $(cat "$RUNNER_TEMP/ceph-$TRACK.outs") | sort -u >"$RUNNER_TEMP/closure.txt"
         xargs -a "$RUNNER_TEMP/closure.txt" -P 32 -I{} bash -c 'p={}; h=${p#/nix/store/}; h=${h%%-*}
           c=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 "https://cache.nixos.org/$h.narinfo" || true)
           [ "$c" = 200 ] && echo "S $p" || echo "K $p"' | sort >"$RUNNER_TEMP/split.txt"

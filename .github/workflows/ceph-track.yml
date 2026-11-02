@@ -20,7 +20,7 @@ on:
         type: string
         default: el9
       cached_ceph:
-        description: Build Ceph through the ceph-umbrella action (a from-source build that is cached, ADR 0010)
+        description: Build Ceph through the ceph-build action (a from-source build that is cached, ADR 0011)
         type: boolean
         default: false
     outputs:
@@ -39,7 +39,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 360 # a cold Umbrella build is about 1.5 h (ADR 0010)
+    timeout-minutes: 360 # a cold Ceph build is about 1.5 h (ADR 0011)
     outputs:
       tag: ${{ steps.load.outputs.tag }}
     steps:
@@ -49,14 +49,16 @@ jobs:
         with:
           extra_nix_config: |
             system-features = nixos-test benchmark big-parallel kvm
-      - uses: ./.github/actions/ceph-umbrella
+      - uses: ./.github/actions/ceph-build
         if: inputs.cached_ceph
+        with:
+          track: ${{ inputs.track }}
       - name: Ceph must not be rebuilt for the image
         if: inputs.cached_ceph
         run: |
           nix build --dry-run ".#${{ inputs.image }}" 2>&1 | tee dry.log
           if grep -E '/nix/store/[a-z0-9]{32}-ceph-[0-9.]+[.]drv' dry.log; then
-            echo "::error::the image build would still compile Ceph: the ceph-umbrella action left outputs out"; exit 1
+            echo "::error::the image build would still compile Ceph: the ceph-build action left outputs out"; exit 1
           fi
       - name: image derivation
         run: nix path-info --derivation ".#${{ inputs.image }}" | tee -a "$GITHUB_STEP_SUMMARY"

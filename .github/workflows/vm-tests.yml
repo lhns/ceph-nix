@@ -1,6 +1,6 @@
 # Slow NixOS VM tests (outside `nix flake check`): the negative control (upstream's image fails on a CPU without
 # AVX2, ours runs) and the cephadm host module with our image on such a CPU, on two nodes (~30 minutes), for both
-# Ceph tracks. The Umbrella ones get Ceph from the ceph-umbrella action (ADR 0010).
+# Ceph tracks. Ceph comes from the ceph-build action (ADR 0011).
 name: vm-tests
 on:
   workflow_dispatch:
@@ -28,7 +28,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: [test-ceph-cpu, test-ceph-host, test-ceph-cpu-umbrella, test-ceph-host-umbrella]
+        include:
+          - test: test-ceph-cpu
+            track: tentacle
+          - test: test-ceph-host
+            track: tentacle
+          - test: test-ceph-cpu-umbrella
+            track: umbrella
+          - test: test-ceph-host-umbrella
+            track: umbrella
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
@@ -46,8 +54,9 @@ jobs:
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
-      - uses: ./.github/actions/ceph-umbrella
-        if: endsWith(matrix.test, '-umbrella')
+      - uses: ./.github/actions/ceph-build
+        with:
+          track: ${{ matrix.track }}
       - run: nix build -L --no-link .#${{ matrix.test }}
       - if: always()
         run: df -h /

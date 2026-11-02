@@ -19,6 +19,14 @@ trap 'rc=$?; [ $rc -eq 0 ] || collect; exit $rc' EXIT
 
 # grep -q on a pipe can SIGPIPE the producer, which pipefail turns into a failure: capture first
 exporter_up() { local m; m=$(curl -sf http://127.0.0.1:9926/metrics) && grep -q '^ceph_' <<<"$m"; }
+# cephadm sets osd_memory_target for the host (section osd, mask host:<name>) from the host's memory
+osd_target() { tbx ceph config dump -f json | jq -r '[.[] | select(.name == "osd_memory_target" and (.mask | startswith("host:")))][0].value // empty'; }
+osd_target_set() { [ -n "$(osd_target)" ]; }
+osd_target_live() { # the OSD runs with the value cephadm set
+	local live
+	live=$(tbx ceph tell osd.0 config get osd_memory_target -f json | jq -r .osd_memory_target)
+	[ "$live" = "$(osd_target)" ]
+}
 
 step "host packages"
 host_setup open-iscsi "target_core_user iscsi_target_mod iscsi_tcp"
@@ -59,6 +67,19 @@ endstep
 
 # three small OSDs: the pools rgw, cephfs and nfs create (the autoscaler grows them) would trip TOO_MANY_PGS
 tbx ceph config set global mon_max_pg_per_osd 1000
+
+step "tcmalloc: heap stats and memory autotuning"
+# a build with jemalloc or libc answers "tcmalloc not enabled, can't use heap profiler commands"
+heap=$(tbx ceph tell osd.0 heap stats)
+echo "$heap"
+grep -q 'tcmalloc heap stats' <<<"$heap"
+grep -q 'MALLOC:' <<<"$heap"
+tbx ceph config set osd osd_memory_target_autotune true
+wait_for 600 "cephadm sets osd_memory_target for the host" osd_target_set || { tbx ceph config dump; exit 1; }
+tbx ceph config dump | grep osd_memory_target
+wait_for 120 "osd.0 runs with that osd_memory_target" osd_target_live || { tbx ceph tell osd.0 config get osd_memory_target; exit 1; }
+tbx ceph orch ps --daemon-type osd -f json | jq -c '.[] | {daemon_name, memory_usage, memory_request}' || true
+endstep
 
 step "mgr modules: none that cannot run, no MGR_MODULE_ERROR"
 tbx ceph mgr module ls -f json >"$work/modules.json"
