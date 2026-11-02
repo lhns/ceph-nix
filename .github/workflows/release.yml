@@ -26,7 +26,64 @@ env:
     || github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main') }}
 
 jobs:
+  # The NixOS VM tests (vm-tests.yml) back the "runs without AVX2" claim, so a release also needs them green.
+  # vm-tests skips pushes that touch only its paths-ignore files, so a main commit may have no run of its own. Rule:
+  # take the newest vm-tests run on main whose commit is an ancestor of (or is) the release commit and that is not
+  # older than the last commit that would have triggered vm-tests; it must be a success. That run covers the release
+  # commit because nothing since it changed what the VMs run.
+  # KEEP the pathspec below in step with vm-tests.yml's paths-ignore.
+  # Race: release starts when ceph.yml ends, vm-tests of the same commit may still run. That fails here; re-run
+  # this workflow once vm-tests has finished.
+  vm-tests:
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+      - name: a successful vm-tests run covers the commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$SOURCE_SHA
+          # a dispatch from a branch only plans (publishing needs main), so it needs no vm-tests
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "dispatch from $GITHUB_REF: vm-tests not required for a dry run"; exit 0
+          fi
+          need=$(git log -1 --format=%H "$sha" -- . ':(exclude)docs' ':(exclude)*.md' ':(exclude)LICENSE' \
+            ':(exclude)tests/*.sh' ':(exclude)tests/*.txt' ':(exclude)tests/*.json' \
+            ':(exclude).github/dependabot.yml' ':(exclude).github/workflows/ceph.yml' \
+            ':(exclude).github/workflows/ceph-track.yml' ':(exclude).github/workflows/nix.yml')
+          [ -n "$need" ] || need=$sha
+          echo "last commit that triggers vm-tests: $need"
+          run=
+          while IFS=$'\t' read -r id head status conclusion; do
+            if git merge-base --is-ancestor "$need" "$head" 2>/dev/null && git merge-base --is-ancestor "$head" "$sha" 2>/dev/null; then
+              run="$id $head $status $conclusion"; break
+            fi
+          done < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/vm-tests.yml/runs?branch=main&per_page=100" \
+            --jq '.workflow_runs[] | [.id, .head_sha, .status, (.conclusion // "")] | @tsv')
+          if [ -z "$run" ]; then
+            echo "::error::no vm-tests run on main covers $sha (needs one for $need or a later commit up to $sha)"; exit 1
+          fi
+          read -r id head status conclusion <<<"$run"
+          echo "vm-tests run $id for $head: $status ${conclusion:-}"
+          if [ "$conclusion" != success ]; then
+            echo "::error::vm-tests run $id for $head is '${conclusion:-$status}', not success; if it is still running, re-run release when it has finished"
+            exit 1
+          fi
+
   plan:
+    needs: vm-tests
     # workflow_run fires for every ceph run: only a successful push to main is a release candidate
     if: >-
       github.event_name == 'workflow_dispatch'

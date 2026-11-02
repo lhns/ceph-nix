@@ -1,5 +1,5 @@
 # Image packages, merged into the flake's packages: one set per Ceph track (`-tentacle`, `-umbrella`).
-# `ceph-image` is the Umbrella image. Both tracks' Ceph are from-source builds (about 1.5 h each on a hosted runner)
+# `ceph-image` is the Umbrella image. Both tracks' Ceph are from-source builds (about 2 h each on a hosted runner)
 # that CI builds once per derivation and caches (ADR 0011); no flake check depends on them.
 { pkgs, self }:
 let

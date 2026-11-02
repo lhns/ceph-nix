@@ -3,9 +3,7 @@
 #   parity.sh UPSTREAM_IMAGE OUR_IMAGE EXPECTED_MAJOR_MINOR      e.g. quay.io/ceph/ceph:v20.2.4 ceph-nix:... 20.2
 # Every entry of upstream's /usr/bin, /usr/sbin, /usr/libexec/ceph, /usr/lib64/{ceph,rados-classes,ganesha,tcmu-runner},
 # the Ceph libraries /usr/lib64/lib{rados,rbd,cephfs,rgw,radosstriper,cephsqlite}.so* and /usr/share/ceph/mgr must exist
-# (resolve) in ours, unless tests/parity-allow.txt allows it. Gaps the Umbrella build closes are in
-# tests/parity-pending.txt and only tolerated with PARITY_PENDING_OK=1. Both files: one shell glob per line, then
-# "# reason, ADR 0002".
+# (resolve) in ours, unless tests/parity-allow.txt allows it (one shell glob per line, then "# reason, ADR 0002").
 # PARITY_USERLAND=el10 for the Umbrella image (Rocky 10; default el9, CentOS Stream 9), see tests/parity-allow.txt.
 # Also the Python the mgr runs on (tests/pydists.py): every distribution installed in upstream's python3, and every
 # top-level module no distribution owns, is present in ours ("pydist:<name>" / "pymod:<name>" entries, normalized
@@ -46,7 +44,7 @@ echo "upstream mgr files: $(grep -c "^/usr/share/ceph/mgr/" "$work/upstream.txt"
 run "$ours" 'while read -r p; do [ -e "$p" ] || echo "$p"; done' <"$work/upstream.txt" | sort -u >"$work/missing.txt"
 
 # --- python distributions and modules (appended to the missing entries, so allow/stale handling is shared)
-pyrun() { local img=$1; shift; docker run --rm -e PYTHONDONTWRITEBYTECODE=1 -v "$here/pydists.py:/pydists.py:ro" 	-v "$work/pynames.txt:/pynames.txt:ro" --entrypoint python3 "$img" /pydists.py "$@" </dev/null; }
+pyrun() { local img=$1; shift; docker run --rm -e PYTHONDONTWRITEBYTECODE=1 -v "$here/pydists.py:/pydists.py:ro" -v "$work/pynames.txt:/pynames.txt:ro" --entrypoint python3 "$img" /pydists.py "$@" </dev/null; }
 : >"$work/pynames.txt"
 pyrun "$up" enum | sort -u >"$work/pyupstream.txt" || fail "cannot list upstream's python distributions"
 echo "upstream python: $(grep -c '^pydist:' "$work/pyupstream.txt") distributions, $(grep -c '^pymod:' "$work/pyupstream.txt") unowned modules"
@@ -93,7 +91,6 @@ patterns() { # glob patterns of a list file, checking each has an ADR 0002 reaso
 }
 : >"$work/other.pat"
 patterns "$here/parity-allow.txt" "$work/other.pat" >"$work/allow.pat"
-patterns "$here/parity-pending.txt" >"$work/pending.pat"
 
 matches() { # lines of $1 matching any glob of $2
 	local p path
@@ -105,33 +102,25 @@ matches() { # lines of $1 matching any glob of $2
 	done <"$1"
 }
 matches "$work/missing.txt" "$work/allow.pat" | sort -u >"$work/allowed.txt"
-comm -23 "$work/missing.txt" "$work/allowed.txt" >"$work/rest.txt"
-matches "$work/rest.txt" "$work/pending.pat" | sort -u >"$work/pending.txt"
-comm -23 "$work/rest.txt" "$work/pending.txt" >"$work/gaps.txt"
+comm -23 "$work/missing.txt" "$work/allowed.txt" >"$work/gaps.txt"
 
-echo "missing in ours: $(wc -l <"$work/missing.txt"); allowed: $(wc -l <"$work/allowed.txt"); pending: $(wc -l <"$work/pending.txt"); gaps: $(wc -l <"$work/gaps.txt")"
+echo "missing in ours: $(wc -l <"$work/missing.txt"); allowed: $(wc -l <"$work/allowed.txt"); gaps: $(wc -l <"$work/gaps.txt")"
 if [ -s "$work/gaps.txt" ]; then
 	echo "== unexplained gaps"; cat "$work/gaps.txt"
 	fail "files missing in our image"
 fi
-if [ -s "$work/pending.txt" ]; then
-	echo "== pending (closed by the Umbrella build)"; cat "$work/pending.txt"
-	[ "${PARITY_PENDING_OK:-}" = 1 ] || fail "pending gaps and PARITY_PENDING_OK is not 1"
-fi
 echo "== allowed"; cat "$work/allowed.txt"
-# stale list entries: an allow entry that explains no gap is a failure, a pending one only a notice
-for l in allow pending; do
-	while IFS= read -r p; do
-		used=
-		while IFS= read -r path; do
-			# shellcheck disable=SC2254
-			case $path in $p) used=1; break ;; esac
-		done <"$work/missing.txt"
-		[ -n "$used" ] && continue
-		grep -qxF -- "$p" "$work/other.pat" && continue
-		if [ $l = allow ]; then fail "unused allow entry: $p"; else echo "NOTE: unused pending entry: $p"; fi
-	done <"$work/$l.pat"
-done
+# stale entries: an allow entry that explains no gap is a failure
+while IFS= read -r p; do
+	used=
+	while IFS= read -r path; do
+		# shellcheck disable=SC2254
+		case $path in $p) used=1; break ;; esac
+	done <"$work/missing.txt"
+	[ -n "$used" ] && continue
+	grep -qxF -- "$p" "$work/other.pat" && continue
+	fail "unused allow entry: $p"
+done <"$work/allow.pat"
 
 # --- mgr modules importable
 cat >"$work/mgrimport.py" <<'PY'

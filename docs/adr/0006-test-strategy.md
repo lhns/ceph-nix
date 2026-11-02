@@ -19,3 +19,12 @@ the only test environment.
 
 - Negative controls keep the tests honest, at the cost of pulling the upstream image.
 - Heavy functional tests run on throwaway GitHub runners, VM tests likewise.
+
+## Amendment (2026-11)
+
+The Trivy scan of each image is no longer report-only. The full HIGH and CRITICAL report is still printed, then a
+second run fails the job on any CRITICAL finding that has a fix (`--severity CRITICAL --ignore-unfixed`, exit code 1).
+HIGH findings and unfixed ones stay informational. Exceptions go in `.trivyignore`, one ID per line with a reason in the
+comment above it; an entry is removed once its cause is gone. The first one is certifi's GHSA-6q48-6c7w-9gw2: nixpkgs
+replaces the bundle the advisory is about with its cacert package. `release.yml` additionally requires a successful
+`vm-tests` run for the release commit, so the VM tests that back the "runs without AVX2" claim gate publishing too.

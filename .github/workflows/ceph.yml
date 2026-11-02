@@ -34,7 +34,6 @@ jobs:
       track: tentacle
       image: ceph-image-tentacle
       expected_version: "20.2"
-      cached_ceph: true
 
   umbrella:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
@@ -44,7 +43,6 @@ jobs:
       image: ceph-image-umbrella
       expected_version: "21.2"
       parity_userland: el10
-      cached_ceph: true
 
   # In-place migration across the major (ADR 0003): a cephadm cluster on our Tentacle image is upgraded to our Umbrella
   # image with `ceph orch upgrade`. Ganesha goes 5.9 -> 9.16 and the cephx key types change on the way. Runs after

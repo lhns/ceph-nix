@@ -19,10 +19,6 @@ on:
         description: el9 or el10, the userland of the upstream image (tests/parity.sh)
         type: string
         default: el9
-      cached_ceph:
-        description: Build Ceph through the ceph-build action (a from-source build that is cached, ADR 0011)
-        type: boolean
-        default: false
     outputs:
       tag:
         description: Docker tag of the loaded image
@@ -39,7 +35,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 360 # a cold Ceph build is about 1.5 h (ADR 0011)
+    timeout-minutes: 360 # a cold Ceph build is about 2 h (ADR 0011)
     outputs:
       tag: ${{ steps.load.outputs.tag }}
     steps:
@@ -50,11 +46,9 @@ jobs:
           extra_nix_config: |
             system-features = nixos-test benchmark big-parallel kvm
       - uses: ./.github/actions/ceph-build
-        if: inputs.cached_ceph
         with:
           track: ${{ inputs.track }}
       - name: Ceph must not be rebuilt for the image
-        if: inputs.cached_ceph
         run: |
           nix build --dry-run ".#${{ inputs.image }}" 2>&1 | tee dry.log
           if grep -E '/nix/store/[a-z0-9]{32}-ceph-[0-9.]+[.]drv' dry.log; then
@@ -117,8 +111,6 @@ jobs:
       - name: upstream image pins
         run: |
           echo "UPSTREAM_IMAGE=$(jq -r '.${{ inputs.track }}' "$PINS")" | tee -a "$GITHUB_ENV"
-          # Known x86-64-v3 image (upstream's Umbrella): the negative control for the CPU test.
-          echo "UPSTREAM_V3_IMAGE=$(jq -r .umbrella "$PINS")" | tee -a "$GITHUB_ENV"
       - uses: actions/download-artifact@v8
         with:
           name: image-${{ inputs.track }}
@@ -128,7 +120,6 @@ jobs:
       - name: parity with upstream
         env:
           PARITY_USERLAND: ${{ inputs.parity_userland }}
-          PARITY_PENDING_OK: "1" # tests/parity-pending.txt is empty today; see there
         run: tests/parity.sh "$UPSTREAM_IMAGE" "${{ needs.build.outputs.tag }}" "${{ inputs.expected_version }}"
 
   cephadm:
@@ -161,8 +152,6 @@ jobs:
       - name: upstream image pins
         run: |
           echo "UPSTREAM_IMAGE=$(jq -r '.${{ inputs.track }}' "$PINS")" | tee -a "$GITHUB_ENV"
-          # Known x86-64-v3 image (upstream's Umbrella): the negative control for the CPU test.
-          echo "UPSTREAM_V3_IMAGE=$(jq -r .umbrella "$PINS")" | tee -a "$GITHUB_ENV"
       - uses: actions/download-artifact@v8
         with:
           name: image-${{ inputs.track }}
@@ -178,18 +167,25 @@ jobs:
           path: upgrade-logs
           retention-days: 7
 
-  # Report-only (upstream's snyk jobs need a token).
+  # Upstream's snyk jobs need a token, so Trivy: the full HIGH and CRITICAL report never fails, then CRITICAL findings
+  # that have a fix do (ADR 0006). Exceptions, each with a reason, are in .trivyignore.
   scan:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           name: image-${{ inputs.track }}
       - run: |
           zstd -d image.tar.zst -o image.tar
-          docker run --rm -v "$PWD/image.tar:/image.tar:ro" aquasec/trivy:latest image --quiet --input /image.tar \
-            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0
+          trivy() { docker run --rm -v trivy-cache:/root/.cache -v "$PWD/image.tar:/image.tar:ro" \
+            -v "$PWD/.trivyignore:/ignore/trivyignore:ro" aquasec/trivy:latest image --quiet --input /image.tar "$@"; }
+          echo "::group::report: HIGH and CRITICAL, fixed ones"
+          trivy --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0
+          echo "::endgroup::"
+          # the gate (the report above ignores nothing)
+          trivy --severity CRITICAL --ignore-unfixed --ignorefile /ignore/trivyignore --exit-code 1
 
   e2e:
     needs: build

@@ -1,6 +1,5 @@
 # Accepted deviations from quay.io/ceph/ceph (tests/parity.sh). One shell glob per line, matched against full paths
-# (/usr/*/x covers /usr/bin and /usr/sbin), then "# reason, ADR 0002". Gaps the Umbrella build closes belong in
-# parity-pending.txt instead.
+# (/usr/*/x covers /usr/bin and /usr/sbin), then "# reason, ADR 0002".
 #
 # The upstream image's userland differs by release: Tentacle is CentOS Stream 9 (el9), Umbrella is Rocky 10 (el10).
 # An entry tagged [el9] or [el10] right after the "#" is only checked for staleness when PARITY_USERLAND (default

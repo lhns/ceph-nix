@@ -19,7 +19,7 @@ runs:
         hash=${drv#/nix/store/}
         hash=${hash%%-*}
         echo "drv=$drv"
-        # fail now, not after a 1.5 h build, if the export and import do not work here
+        # fail now, not after a 2 h build, if the export and import do not work here
         probe=$(readlink -f "$(command -v nix)")
         probe=${probe%/bin/*}
         nix-store --export "$probe" | zstd -c | zstd -dc | nix-store --import
