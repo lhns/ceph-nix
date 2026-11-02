@@ -8,17 +8,46 @@ on:
     paths-ignore: *skip
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   # one run per ref at a time (the format step commits); never cancel a running one
   cancel-in-progress: false
 
 jobs:
+  # The only job with write access: it runs no PR code (pushes only) and commits flake.lock and formatting.
+  # No local Nix on the dev machine, so pushes get both written here.
+  format:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - name: flake.lock and nixfmt
+        id: commit
+        run: |
+          nix flake lock
+          git ls-files -z '*.nix' | xargs -0 nix fmt --
+          git add -A
+          if ! git diff --cached --quiet; then
+            git -c user.name=github-actions -c user.email=noreply@github.com commit -m "Update flake.lock, nixfmt"
+            git push
+          fi
+          echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+
+  # Read-only, also for PR code. On a push it checks the commit `format` may just have made.
   check:
+    needs: format
+    if: ${{ !cancelled() && (needs.format.result == 'success' || needs.format.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.format.outputs.sha || github.sha }}
       - name: KVM for NixOS VM tests
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
@@ -28,15 +57,4 @@ jobs:
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
-      # No local Nix on the dev machine: pushes get flake.lock and formatting written here.
-      - name: flake.lock and nixfmt
-        if: github.event_name == 'push'
-        run: |
-          nix flake lock
-          git ls-files -z '*.nix' | xargs -0 nix fmt --
-          git add -A
-          if ! git diff --cached --quiet; then
-            git -c user.name=github-actions -c user.email=noreply@github.com commit -m "Update flake.lock, nixfmt"
-            git push
-          fi
       - run: nix flake check -L

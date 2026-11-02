@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Runs an image's binaries under qemu-user with a restricted CPU model (CPUID and instruction set), ADR 0006.
-#   cpu.sh IMAGE CPU pass   every program must run
-#   cpu.sh IMAGE CPU fail   every program must be refused by glibc for lacking x86-64-v3, and nothing else
-# Needs qemu-x86_64-static. A missing program fails the run; only the smoke binary (ours only) is skipped.
+#   cpu.sh IMAGE CPU pass [upstream]   every program must run
+#   cpu.sh IMAGE CPU fail [upstream]   every program must be refused by glibc for lacking x86-64-v3, and nothing else
+# Needs qemu-x86_64-static. A missing program fails the run; the smoke binary only ships in our image, so it is
+# skipped only when the fourth argument says the image is upstream's.
 set -uo pipefail
-image=$1 cpu=$2 expect=$3
+image=$1 cpu=$2 expect=$3 kind=${4:-ours}
+[ "$kind" = ours ] || [ "$kind" = upstream ] || { echo "fourth argument: ours or upstream"; exit 2; }
 here=$(cd "$(dirname "$0")" && pwd)
 qemu=$(command -v qemu-x86_64-static)
 
@@ -82,7 +84,7 @@ for entry in "${cmds[@]}"; do
 	# shellcheck disable=SC2207
 	target=($(resolve "$prog"))
 	if [ ${#target[@]} -eq 0 ] || ! docker run --rm --entrypoint /bin/sh "$image" -c "test -e '$prog'" 2>/dev/null; then
-		if [ "$prog" = /usr/libexec/ceph-nix/smoke ]; then # only our image carries it
+		if [ "$prog" = /usr/libexec/ceph-nix/smoke ] && [ "$kind" = upstream ]; then # only our image carries it
 			printf '### %s  [%s] SKIPPED, not in image\n' "$prog" "$cpu"
 			continue
 		fi

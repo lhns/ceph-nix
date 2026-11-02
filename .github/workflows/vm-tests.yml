@@ -1,5 +1,5 @@
 # Slow NixOS VM tests (outside `nix flake check`): the negative control (upstream's image fails on a CPU without
-# AVX2, ours runs) and the cephadm host module with our image on such a CPU, on two nodes (~30 minutes), for both
+# AVX2, ours runs) and the cephadm host module with our image on such a CPU, on two nodes (about 42 to 52 minutes), for both
 # Ceph tracks. Ceph comes from the ceph-build action (ADR 0011).
 name: vm-tests
 on:
@@ -20,6 +20,9 @@ on:
       - .github/workflows/nix.yml
   pull_request:
     paths-ignore: *skip
+
+permissions:
+  contents: read
 
 jobs:
   vm-test:

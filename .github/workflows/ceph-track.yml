@@ -99,9 +99,9 @@ jobs:
       - name: ours on Nehalem (plain x86-64-v2, no AVX)
         run: tests/cpu.sh "${{ needs.build.outputs.tag }}" Nehalem pass
       - name: upstream v21.2.0 on Ivy Bridge must be refused
-        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" IvyBridge fail
+        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" IvyBridge fail upstream
       - name: upstream v21.2.0 on Haswell runs (the harness is not the failure)
-        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" Haswell pass
+        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" Haswell pass upstream
 
   parity:
     needs: build
@@ -169,6 +169,7 @@ jobs:
 
   # Upstream's snyk jobs need a token, so Trivy: the full HIGH and CRITICAL report never fails, then CRITICAL findings
   # that have a fix do (ADR 0006). Exceptions, each with a reason, are in .trivyignore.
+  # The Trivy image is pinned by digest (latest on 2026-11-02); bump it by hand.
   scan:
     needs: build
     runs-on: ubuntu-24.04
@@ -180,7 +181,7 @@ jobs:
       - run: |
           zstd -d image.tar.zst -o image.tar
           trivy() { docker run --rm -v trivy-cache:/root/.cache -v "$PWD/image.tar:/image.tar:ro" \
-            -v "$PWD/.trivyignore:/ignore/trivyignore:ro" aquasec/trivy:latest image --quiet --input /image.tar "$@"; }
+            -v "$PWD/.trivyignore:/ignore/trivyignore:ro" aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c image --quiet --input /image.tar "$@"; }
           echo "::group::report: HIGH and CRITICAL, fixed ones"
           trivy --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0
           echo "::endgroup::"

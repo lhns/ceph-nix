@@ -24,3 +24,8 @@ its [ADR 0003](https://github.com/lhns/ceph-csi-x86-64-v2/blob/main/docs/adr/000
 - We own the version bump, the patches and the missing packaging (dashboard, iSCSI, asyncssh).
 - Generic changes (Umbrella bump, asyncssh, dashboard) should go upstream to nixpkgs to shrink the delta.
 - The build is `big-parallel` and long; see ADR 0010 for how CI builds and caches it.
+
+## Amendment (2026-11)
+
+The sentence that Tentacle uses nixpkgs' prebuilt 20.2.4 and needs no Ceph compile is superseded by ADR 0011: both tracks
+are built from source with shared overrides.

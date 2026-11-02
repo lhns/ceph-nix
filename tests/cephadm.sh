@@ -419,8 +419,7 @@ fi
 sudo losetup -d "$bdev"
 endstep
 
-# Last, so a gap here does not hide the other checks: on Tentacle, Ganesha 5.9 of ours aborts ("buffer overflow
-# detected") when it loads an RGW export; the upstream image mounts it.
+# Last: the RGW export is the least exercised NFS path, and a failure here must not hide the other checks.
 step "nfs: RGW export (FSAL_RGW), mount, I/O, seen through S3"
 python3 - "$ip" <<'PY'
 import sys
