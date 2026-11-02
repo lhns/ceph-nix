@@ -198,6 +198,9 @@ in
       "L+ /bin/ls - - - - ${pkgs.coreutils}/bin/ls"
       "L+ /usr/bin/python3 - - - - ${pkgs.python3}/bin/python3"
       "L+ /usr/sbin - - - - ${usrSbin}"
+      # cephadm's iscsi units bind-mount the host's /lib/modules (tcmu-runner and rbd-target-gw load kernel modules)
+      "d /lib 0755 root root - -"
+      "L+ /lib/modules - - - - /run/booted-system/kernel-modules/lib/modules"
       # every cephadm call writes /etc/logrotate.d/cephadm and fails without the directory
       "d /etc/logrotate.d 0755 root root - -"
       "d ${cfg.stateDir} 0755 root root - -"
