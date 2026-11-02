@@ -36,6 +36,13 @@ Not verified:
 - The NixOS-host leg of a migration from an unpatched (upstream) cephadm, i.e. the `keepUnits` backstop of the module:
   CI runs the upgrade on a plain Ubuntu host only.
 - The negative-control CPU test uses upstream's Umbrella image for both tracks (the known x86-64-v3 image).
+- Known hazard: do not mount this cluster's own NFS (Ganesha) exports with the kernel client on its OSD hosts.
+  cephadm mounts the host's `/` at `/rootfs` in every OSD container, so an OSD started while such a mount exists holds
+  a copy of it. If all OSDs then restart at once (`ceph orch restart osd`), an exiting OSD's NFS client teardown
+  (DESTROY_CLIENTID) waits on Ganesha, which waits on a RADOS write (its `rec-*` recovery object) to a PG that stays
+  down until that OSD returns; the OSD container hangs in D state. With `min_size 2` pools (the production default
+  for size 3) we did not reproduce it (0/3, against 2/3 with size 2 and `min_size 1`); upstream's image has the same
+  mechanism. CI keeps such a mount across the upgrade with size 3/`min_size 2` pools (`tests/upgrade.sh`).
 - The Trivy scan sees language packages (Python, Go, Rust) but not the Nix-built native libraries: there is no OS
   package database in the image.
 

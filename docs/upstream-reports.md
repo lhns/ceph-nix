@@ -74,3 +74,28 @@ thin, the draft says so instead of guessing. Check each against current upstream
   `nfs-ganesha.nfs.<rank>` to the nfs daemon of that rank.
 - Thin facts: whether #69042 is backported to a 21.2.x release is not checked here. `tests/lib.sh` tolerates exactly
   this detail and fails when the warning stops appearing, so a fixed release is noticed.
+
+## 5. nfs-ganesha V5.9: FSAL_RGW heap overflow when a cluster name is set
+
+- Component: nfs-ganesha V5 branch, `src/FSAL/FSAL_RGW/main.c`.
+- Symptom: loading an RGW export with a cluster name set (cephadm sets one) overflows a heap buffer. Under
+  `_FORTIFY_SOURCE` it aborts ("buffer overflow detected", exit 134), e.g. on a SIGHUP export reload, and Ganesha
+  crash-loops.
+- Cause: the `--cluster=<name>` argv buffer is sized `strlen(cluster) + 8`, but `--cluster=` is 10 characters plus the
+  NUL, so it needs `+ 11`.
+- Fixed in 9.x (`+ 11`). Ours patches 5.9 in `nix/pkgs/nfs-ganesha.nix`. Suggested: backport the fix to the V5 branch.
+- Thin facts: upstream's EL9 RPM probably carries the same bug but did not trip the check in our runs; not verified.
+
+## 6. cephadm: OSD containers capture host NFS mounts through the `/rootfs` rbind
+
+- Component: cephadm, `cephadmlib/daemons/ceph.py` (`mounts['/'] = '/rootfs'`).
+- Symptom: an OSD started while the host has an NFS mount of the cluster's own Ganesha export holds a copy of that
+  mount. If all OSDs restart at once (`ceph orch restart osd`), an exiting OSD's NFS client teardown
+  (DESTROY_CLIENTID) waits on Ganesha, which waits on a RADOS write (its `rec-*` recovery object) to a PG that stays
+  down until that OSD returns. The OSD container hangs in D state.
+- With `min_size 2` pools (production default for size 3) we did not reproduce it (0/3, against 2/3 with size 2 and
+  `min_size 1`).
+- Suggested fix: mount `/rootfs` with a propagation or scope that excludes network filesystems, or document the
+  hazard.
+- Thin facts: why the upstream 20.2.3 to 20.2.4 control runs hung less often (0/4) than upstream to ours is a race of PG
+  state, not established in detail. Upstream's image has the same mechanism.
