@@ -19,12 +19,13 @@ trap 'rc=$?; [ $rc -eq 0 ] || collect; exit $rc' EXIT
 
 # grep -q on a pipe can SIGPIPE the producer, which pipefail turns into a failure: capture first
 exporter_up() { local m; m=$(curl -sf http://127.0.0.1:9926/metrics) && grep -q '^ceph_' <<<"$m"; }
-# cephadm sets osd_memory_target for the host (config section osd/host:<name>) from the host's memory
-osd_target_set() { tbx ceph config dump -f json | jq -e '[.[] | select(.name == "osd_memory_target" and (.section | startswith("osd/host:")))] | length > 0'; }
+# cephadm sets osd_memory_target for the host (section osd, mask host:<name>) from the host's memory
+osd_target() { tbx ceph config dump -f json | jq -r '[.[] | select(.name == "osd_memory_target" and (.mask | startswith("host:")))][0].value // empty'; }
+osd_target_set() { [ -n "$(osd_target)" ]; }
 osd_target_live() { # the OSD runs with the value cephadm set
 	local live
 	live=$(tbx ceph tell osd.0 config get osd_memory_target -f json | jq -r .osd_memory_target)
-	[ "$live" = "$(tbx ceph config get osd.0 osd_memory_target)" ]
+	[ "$live" = "$(osd_target)" ]
 }
 
 step "host packages"
