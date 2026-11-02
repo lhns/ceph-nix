@@ -177,7 +177,8 @@ ghcr.io/lhns/ceph-nix@sha256:<manifest digest from the release notes>
 ```
 
 [`release.yml`](.github/workflows/release.yml) runs when `ceph.yml` or `vm-tests.yml` finishes on `main`; the one that
-finishes last passes its gate (both green for the commit, which must be main's head) and releases the `image-<track>`
+finishes last passes its gate (green ceph and vm-tests runs that cover main's head, which may be a later docs-only
+commit) and releases the `image-<track>`
 artifacts that `ceph.yml` tested, without rebuilding, if the image differs from the newest `v<ver>-*`
 ([ADR 0003](docs/adr/0003-releases.md)). The artifacts are kept 7 days: a later release needs `ceph.yml` re-run first.
 It compares the image config (layer content, env, cmd, labels; without the commit label), not the registry digest.

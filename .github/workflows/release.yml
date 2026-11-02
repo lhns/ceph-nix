@@ -19,8 +19,6 @@ defaults:
     shell: bash # with pipefail
 env:
   REGISTRY_IMAGE: ghcr.io/lhns/ceph-nix
-  # The commit ceph.yml tested; for a dispatch, the dispatched ref's head.
-  SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
   # Publishing needs the tested main commit: never from a branch dispatch or a fork's PR run.
   CAN_PUBLISH: >-
     ${{ vars.PUBLISH == 'true'
@@ -28,18 +26,20 @@ env:
     || github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main') }}
 
 jobs:
-  # One gate for ceph.yml and vm-tests. The release commit (SOURCE_SHA) must be main's head and have
-  # (a) a successful ceph.yml push run of its own (its image artifacts are what gets released), and
-  # (b) a successful vm-tests run that covers it: the VM tests back the "runs without AVX2" claim.
+  # One gate for ceph.yml and vm-tests. The release candidate is main's head H, whatever run triggered this workflow.
+  # H needs a successful run of each of
+  # (a) ceph.yml (a push run on main): its image artifacts are what gets released, and
+  # (b) vm-tests: the VM tests back the "runs without AVX2" claim.
   # A run that is missing or still going is "not ready" (ok=false, a notice): the workflow that finishes last
   # releases. A finished run that did not succeed is an error.
-  # vm-tests skips pushes that touch only its paths-ignore files, so a main commit may have no run of its own. Rule
-  # for (b): take the newest vm-tests run on main whose commit is an ancestor of (or is) the release commit and that
-  # is not older than the last commit that would have triggered vm-tests. That run covers the release commit because
-  # nothing since it changed what the VMs run.
-  # KEEP the pathspec below in step with vm-tests.yml's paths-ignore.
-  # A dispatch from a branch is a dry run: it needs a ceph run of that commit (for the artifacts) but neither main's
-  # head nor vm-tests.
+  # Both workflows skip pushes that touch only their paths-ignore files, so H may have no run of its own. Covering
+  # run: the newest run on main whose commit C is an ancestor of (or is) H and that is not older than the last commit
+  # that would have triggered the workflow. It covers H because nothing between C and H changed what the workflow
+  # runs. For ceph.yml that makes C's image artifacts H's image. Plan and publish take notes, flake.lock and the git
+  # tag from C, so the tag matches the image's revision label.
+  # KEEP the pathspecs below in step with the paths-ignore of ceph.yml and vm-tests.yml.
+  # A dispatch from a branch is a dry run: it needs a ceph run of exactly that commit (for the artifacts) but neither
+  # main's head nor vm-tests.
   gate:
     # workflow_run fires for every ceph and vm-tests run: only a successful push to main is a release candidate
     if: >-
@@ -55,44 +55,69 @@ jobs:
     outputs:
       ok: ${{ steps.gate.outputs.ok }}
       ceph_run: ${{ steps.gate.outputs.ceph_run }}
+      ceph_sha: ${{ steps.gate.outputs.ceph_sha }}
+      head: ${{ steps.gate.outputs.head }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ env.SOURCE_SHA }}
+          # a run for an older commit still evaluates main's head
+          ref: ${{ github.event_name == 'workflow_run' && 'main' || github.sha }}
           fetch-depth: 0
       - name: main's head with green ceph and vm-tests runs
         id: gate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sha=$SOURCE_SHA
           dry=false
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" != refs/heads/main ]; then dry=true; fi
           not_ready() { echo "::notice::not ready: $*"; echo ok=false >>"$GITHUB_OUTPUT"; exit 0; }
 
-          # only main's head is released
-          if [ "$dry" = false ]; then
-            head=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)
-            [ "$head" = "$sha" ] || not_ready "$sha is not main's head ($head); only the head is released"
-          fi
+          # covering WORKFLOW RUN-QUERY PATHSPEC...: sets cov="id head status conclusion" (empty if none), see the
+          # comment above the job
+          covering() {
+            local wf=$1 query=$2 need id h st co
+            shift 2
+            need=$(git log -1 --format=%H "$sha" -- . "$@")
+            [ -n "$need" ] || need=$sha
+            echo "$wf: last commit that triggers it: $need"
+            cov=
+            while IFS=$'\t' read -r id h st co; do
+              if git merge-base --is-ancestor "$need" "$h" 2>/dev/null && git merge-base --is-ancestor "$h" "$sha" 2>/dev/null; then
+                cov="$id $h $st $co"; break
+              fi
+            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?branch=main&per_page=100$query" \
+              --jq '.workflow_runs[] | [.id, .head_sha, .status, (.conclusion // "")] | @tsv')
+          }
 
           # (a) ceph.yml
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ceph.yml/runs?head_sha=$sha&per_page=50" >ceph-runs.json
-          run=$(jq -r --arg dry "$dry" '[.workflow_runs[] | select($dry == "true" or (.event == "push" and .head_branch == "main"))]
-            | first // empty | [.id, .status, (.conclusion // "")] | @tsv' ceph-runs.json)
-          [ -n "$run" ] || not_ready "no ceph run for $sha (yet; ceph.yml skips pushes that cannot change the images)"
-          read -r ceph_run status conclusion <<<"$run"
-          echo "ceph run $ceph_run for $sha: $status ${conclusion:-}"
+          if [ "$dry" = true ]; then
+            sha=$GITHUB_SHA
+            run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ceph.yml/runs?head_sha=$sha&per_page=50" \
+              --jq '.workflow_runs | first // empty | [.id, .head_sha, .status, (.conclusion // "")] | @tsv')
+            [ -z "$run" ] || cov=$run
+          else
+            git fetch -q origin main
+            sha=$(git rev-parse origin/main)
+            # KEEP in step with ceph.yml's paths-ignore
+            covering ceph.yml '&event=push' ':(exclude)docs' ':(exclude)*.md' ':(exclude)LICENSE' \
+              ':(exclude)nix/modules' ':(exclude)nix/tests' ':(exclude).github/dependabot.yml' \
+              ':(exclude).github/workflows/nix.yml' ':(exclude).github/workflows/release.yml' \
+              ':(exclude).github/workflows/bump.yml' ':(exclude).github/workflows/vm-tests.yml'
+          fi
+          echo "release candidate: $sha"
+          [ -n "${cov:-}" ] || not_ready "no ceph run covers $sha (yet)"
+          read -r ceph_run ceph_sha status conclusion <<<"$cov"
+          echo "ceph run $ceph_run for $ceph_sha: $status ${conclusion:-}"
           [ "$status" = completed ] || not_ready "ceph run $ceph_run is still $status"
           if [ "$conclusion" != success ]; then
-            echo "::error::ceph run $ceph_run for $sha is '$conclusion', not success"; exit 1
+            echo "::error::ceph run $ceph_run for $ceph_sha is '$conclusion', not success"; exit 1
           fi
           # the image artifacts expire (retention-days in ceph-track.yml); a release never rebuilds them
           for t in tentacle umbrella; do
             expired=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ceph_run/artifacts?per_page=100" \
               --jq ".artifacts[] | select(.name == \"image-$t\") | .expired")
             if [ "$expired" != false ]; then
-              echo "::error::artifact image-$t of ceph run $ceph_run is missing or expired (ceph-track.yml keeps them 7 days); re-run ceph.yml for $sha, then release again"
+              echo "::error::artifact image-$t of ceph run $ceph_run is missing or expired (ceph-track.yml keeps them 7 days); re-run ceph.yml for $ceph_sha, then release again"
               exit 1
             fi
           done
@@ -101,21 +126,13 @@ jobs:
           if [ "$dry" = true ]; then
             echo "dispatch from $GITHUB_REF: main's head and vm-tests not required for a dry run"
           else
-            need=$(git log -1 --format=%H "$sha" -- . ':(exclude)docs' ':(exclude)*.md' ':(exclude)LICENSE' \
+            # KEEP in step with vm-tests.yml's paths-ignore
+            covering vm-tests.yml '' ':(exclude)docs' ':(exclude)*.md' ':(exclude)LICENSE' \
               ':(exclude)tests/*.sh' ':(exclude)tests/*.txt' ':(exclude)tests/*.json' \
               ':(exclude).github/dependabot.yml' ':(exclude).github/workflows/ceph.yml' \
-              ':(exclude).github/workflows/ceph-track.yml' ':(exclude).github/workflows/nix.yml')
-            [ -n "$need" ] || need=$sha
-            echo "last commit that triggers vm-tests: $need"
-            vm=
-            while IFS=$'\t' read -r id vhead vstatus vconclusion; do
-              if git merge-base --is-ancestor "$need" "$vhead" 2>/dev/null && git merge-base --is-ancestor "$vhead" "$sha" 2>/dev/null; then
-                vm="$id $vhead $vstatus $vconclusion"; break
-              fi
-            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/vm-tests.yml/runs?branch=main&per_page=100" \
-              --jq '.workflow_runs[] | [.id, .head_sha, .status, (.conclusion // "")] | @tsv')
-            [ -n "$vm" ] || not_ready "no vm-tests run on main covers $sha (needs one for $need or a later commit up to $sha)"
-            read -r id vhead vstatus vconclusion <<<"$vm"
+              ':(exclude).github/workflows/ceph-track.yml' ':(exclude).github/workflows/nix.yml'
+            [ -n "$cov" ] || not_ready "no vm-tests run on main covers $sha"
+            read -r id vhead vstatus vconclusion <<<"$cov"
             echo "vm-tests run $id for $vhead: $vstatus ${vconclusion:-}"
             [ "$vstatus" = completed ] || not_ready "vm-tests run $id for $vhead is still $vstatus"
             if [ "$vconclusion" != success ]; then
@@ -125,13 +142,17 @@ jobs:
           {
             echo ok=true
             echo "ceph_run=$ceph_run"
+            echo "ceph_sha=$ceph_sha"
+            echo "head=$sha"
           } >>"$GITHUB_OUTPUT"
-          echo "gate passed for $sha (ceph run $ceph_run)"
+          echo "gate passed for $sha (ceph run $ceph_run of $ceph_sha)"
 
   plan:
     needs: gate
     if: needs.gate.outputs.ok == 'true'
     runs-on: ubuntu-24.04
+    env:
+      SOURCE_SHA: ${{ needs.gate.outputs.ceph_sha }} # the commit the image was built from (see the gate)
     permissions:
       contents: read
       packages: read # the package is private until made public; anonymous reads would see "no tags"
@@ -237,7 +258,7 @@ jobs:
               echo "nothing to publish: identical to \`$newest\` (identity \`$ident_new\`, config digest \`$config_digest\`)"
             fi
             echo
-            echo "Commit \`$SOURCE_SHA\`, ceph run \`${{ needs.gate.outputs.ceph_run }}\`; publishing enabled: \`$CAN_PUBLISH\` (variable PUBLISH, tested main commit only)."
+            echo "Image built from \`$SOURCE_SHA\` (main head \`${{ needs.gate.outputs.head }}\`), ceph run \`${{ needs.gate.outputs.ceph_run }}\`; publishing enabled: \`$CAN_PUBLISH\` (variable PUBLISH, tested main commit only)."
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         if: env.CAN_PUBLISH == 'true'
@@ -252,6 +273,8 @@ jobs:
     needs: [gate, plan]
     if: needs.plan.result == 'success' && vars.PUBLISH == 'true' && (github.event_name == 'workflow_run' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
+    env:
+      SOURCE_SHA: ${{ needs.gate.outputs.ceph_sha }} # the commit the image was built from; the tag goes there
     permissions:
       contents: write # the git tag and the release
       packages: write
@@ -269,13 +292,14 @@ jobs:
         id: head
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_HEAD: ${{ needs.gate.outputs.head }}
         run: |
           # main may have moved since the gate; a newer commit gets its own release
           head=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)
-          if [ "$head" = "$SOURCE_SHA" ]; then
+          if [ "$head" = "$RELEASE_HEAD" ]; then
             echo current=true >>"$GITHUB_OUTPUT"
           else
-            echo "::notice::$SOURCE_SHA is no longer main's head ($head); not publishing"
+            echo "::notice::$RELEASE_HEAD is no longer main's head ($head); not publishing"
             echo current=false >>"$GITHUB_OUTPUT"
           fi
       - uses: actions/download-artifact@v8
