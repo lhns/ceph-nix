@@ -42,6 +42,7 @@ in
   tentacle =
     (ceph.overrideScope (common {
       withRbdRwl = true;
+      forceCstdint = true;
     })).ceph;
 
   umbrella =
