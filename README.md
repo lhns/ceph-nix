@@ -33,6 +33,18 @@ Not verified:
 - Multi-host failure drills (node loss, network partitions).
 - Performance: no benchmarks against upstream's image.
 - Real Ivy Bridge hardware: the CPU tests use qemu and masked KVM CPUs.
+- The NixOS-host leg of a migration from an unpatched (upstream) cephadm, i.e. the `keepUnits` backstop of the module:
+  CI runs the upgrade on a plain Ubuntu host only.
+- The negative-control CPU test uses upstream's Umbrella image for both tracks (the known x86-64-v3 image).
+- Known hazard: do not mount this cluster's own NFS (Ganesha) exports with the kernel client on its OSD hosts.
+  cephadm mounts the host's `/` at `/rootfs` in every OSD container, so an OSD started while such a mount exists holds
+  a copy of it. If all OSDs then restart at once (`ceph orch restart osd`), an exiting OSD's NFS client teardown
+  (DESTROY_CLIENTID) waits on Ganesha, which waits on a RADOS write (its `rec-*` recovery object) to a PG that stays
+  down until that OSD returns; the OSD container hangs in D state. With `min_size 2` pools (the production default
+  for size 3) we did not reproduce it (0/3, against 2/3 with size 2 and `min_size 1`); upstream's image has the same
+  mechanism. CI keeps such a mount across the upgrade with size 3/`min_size 2` pools (`tests/upgrade.sh`).
+- The Trivy scan sees language packages (Python, Go, Rust) but not the Nix-built native libraries: there is no OS
+  package database in the image.
 
 ## Ceph host
 
@@ -48,6 +60,7 @@ Compose it with your own base (it does not bring networking, a bootloader or use
     enable = true;
     orchestratorKeys = [ "ssh-ed25519 AAAA... cluster" ]; # allowed to log in as root
     image = "ghcr.io/lhns/ceph-nix:...";      # required: pin by digest, same Ceph release as the host's cephadm
+    cephadmPackage = ceph-nix.packages.x86_64-linux.cephadm-tentacle.host; # required: cephadm-umbrella.host for Umbrella
     # clientKernelModules = true;           # rbd/ceph kernel modules, for hosts that map or mount
   };
 }
@@ -62,7 +75,7 @@ ceph orch host add <other-host> <ip>
 ceph orch daemon add osd <host>:/dev/<disk>  # or: ceph orch apply osd --all-available-devices
 ```
 
-Not supported: `system.etc.overlay.enable`. The VM test is `nix build .#test-ceph-host` (about 30 minutes): cephadm on NixOS with our image on a CPU without
+Not supported: `system.etc.overlay.enable`. The VM test is `nix build .#test-ceph-host` (about 42 minutes for Tentacle, 52 for Umbrella with `-umbrella`): cephadm on NixOS with our image on a CPU without
 AVX2, with `.#test-ceph-cpu` as negative control (upstream's image cannot start there).
 
 ## Disk locate LED
@@ -114,8 +127,8 @@ migration from one to the other.
 ### Upgrading and migrating
 
 A cluster on upstream's `quay.io/ceph/ceph` moves to this image in two `ceph orch upgrade` steps, each tested in CI
-(`tests/upgrade.sh`, `migrate`, `migrate-control`). Set `services.ceph-host.image` and the host's cephadm to the target
-release first (hosts that run cephadm from this flake), and pin images by digest:
+(`tests/upgrade.sh`, `migrate`, `migrate-control`). Set `services.ceph-host.image` and `services.ceph-host.cephadmPackage`
+(the target track's `cephadm-tentacle.host` or `cephadm-umbrella.host`) to the target release first, and pin images by digest:
 
 1. Upstream v20.2.4 to ours v20.2.4: `ceph orch upgrade start --image ghcr.io/lhns/ceph-nix@sha256:<v20.2.4 digest>`.
    Same version, so only the container changes; wait for `ceph orch upgrade status` to finish and for HEALTH_OK.
@@ -163,11 +176,14 @@ of nixpkgs and opencas-nix and the companion versions. A tag is never moved; `<n
 ghcr.io/lhns/ceph-nix@sha256:<manifest digest from the release notes>
 ```
 
-[`release.yml`](.github/workflows/release.yml) runs after `ceph.yml` succeeded on `main` and releases that exact
-commit if the image differs from the newest `v<ver>-*` ([ADR 0003](docs/adr/0003-releases.md)). It compares the
-image config (layer content, env, cmd, labels; without the commit label), not the registry digest. Publishing is off
-until the repository variable `PUBLISH` is `true` (Settings, Secrets and variables, Actions, Variables). Without it
-the workflow is a dry run: it builds the image and prints "would publish v20.2.4-1, config digest ..., newest
+[`release.yml`](.github/workflows/release.yml) runs when `ceph.yml` or `vm-tests.yml` finishes on `main`; the one that
+finishes last passes its gate (green ceph and vm-tests runs that cover main's head, which may be a later docs-only
+commit) and releases the `image-<track>`
+artifacts that `ceph.yml` tested, without rebuilding, if the image differs from the newest `v<ver>-*`
+([ADR 0003](docs/adr/0003-releases.md)). The artifacts are kept 7 days: a later release needs `ceph.yml` re-run first.
+It compares the image config (layer content, env, cmd, labels; without the commit label), not the registry digest.
+Publishing is off until the repository variable `PUBLISH` is `true` (Settings, Secrets and variables, Actions,
+Variables). Without it the workflow is a dry run: it prints "would publish v20.2.4-1, config digest ..., newest
 existing: none" to the run's step summary, and pushes nothing. [`bump.yml`](.github/workflows/bump.yml) opens a
 weekly `flake.lock` PR and an issue when upstream publishes a newer Ceph release in the tracked series.
 

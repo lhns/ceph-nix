@@ -30,7 +30,7 @@
       formatter.${system} = pkgs.nixfmt;
 
       packages.${system} = import ./nix/images { inherit pkgs self; } // {
-        # Slow VM test (about 30 minutes): run by .github/workflows/vm-tests.yml, not part of `checks`.
+        # Slow VM test (about 42 to 52 minutes): run by .github/workflows/vm-tests.yml, not part of `checks`.
         test-ceph-host = import ./nix/tests/ceph-host.nix {
           inherit
             pkgs
@@ -74,6 +74,7 @@
                   services.ceph-host = {
                     enable = true;
                     image = "localhost/ceph-nix:test";
+                    cephadmPackage = self.packages.${system}.cephadm-tentacle.host;
                     clientKernelModules = true;
                     orchestratorKeys = [ "ssh-ed25519 AAAA test" ];
                   };

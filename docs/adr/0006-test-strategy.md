@@ -9,8 +9,9 @@ the only test environment.
 
 ## Decision
 
-- CPU: qemu-user IvyBridge/Nehalem runs every binary. Negative control: upstream's image fails on IvyBridge and
-  passes on Haswell.
+- CPU: qemu-user IvyBridge/Nehalem runs `--version`/`--help` of each entry point plus the smoke binary
+  (`tests/cpu.sh`); real coverage of runtime-dispatched code comes from the VM tests. Negative control: upstream's
+  image fails on IvyBridge and passes on Haswell.
 - Parity: per ADR 0002.
 - Functional: cephadm and ceph-csi's Rook e2e on GitHub Ubuntu runners from the image artifact.
 - NixOS VM tests on hosted runners (ADR 0010) with AVX2 masked, first asserting the guest has no `avx2`.
@@ -28,3 +29,6 @@ HIGH findings and unfixed ones stay informational. Exceptions go in `.trivyignor
 comment above it; an entry is removed once its cause is gone. The first one is certifi's GHSA-6q48-6c7w-9gw2: nixpkgs
 replaces the bundle the advisory is about with its cacert package. `release.yml` additionally requires a successful
 `vm-tests` run for the release commit, so the VM tests that back the "runs without AVX2" claim gate publishing too.
+
+The Trivy scan sees language packages (Python, Go, Rust) but not the Nix-built native libraries: the image has no OS
+package database. The Trivy image is pinned by digest in `ceph-track.yml`.

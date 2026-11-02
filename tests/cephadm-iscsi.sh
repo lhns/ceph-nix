@@ -9,13 +9,14 @@ ip=$1 work=$2
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=lib.sh
 . "$here/lib.sh"
-# the REST API answers a PUT with a JSON message and an HTTP status; show both, fail on 4xx/5xx
+# the REST API answers a PUT with a JSON message and an HTTP status; show both, fail on anything but 2xx/3xx
 api() { # api METHOD PATH [curl args]
 	local m=$1 p=$2 code
 	shift 2
 	code=$(curl -s -o /dev/stderr -w '%{http_code}' -X "$m" "$@" "$api/$p" 2>"$work/api.body") || true
 	echo "$m /api/$p -> $code $(cat "$work/api.body")"
-	[ "$code" -lt 400 ]
+	# 000 is curl's "no HTTP answer at all"
+	[ "$code" -ge 200 ] && [ "$code" -lt 400 ]
 }
 
 tbx ceph osd pool create iscsi 1 >/dev/null

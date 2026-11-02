@@ -94,12 +94,13 @@ in
 
     cephadmPackage = lib.mkOption {
       type = lib.types.package;
-      default = (pkgs.callPackage ../pkgs/cephadm.nix { }).host;
-      defaultText = lib.literalExpression "(pkgs.callPackage ./nix/pkgs/cephadm.nix { }).host";
+      example = lib.literalExpression "ceph-nix.packages.x86_64-linux.cephadm-tentacle.host";
       description = ''
-        cephadm for this host: the build our image ships, run with the host's python3. Its units carry
-        `X-StopOnRemoval=false`. Keep it at the Ceph release of `image`; the drop-in writer covers units
-        written by an unpatched cephadm (an upstream image).
+        cephadm for this host: the build our image ships, run with the host's python3. Use
+        `ceph-nix.packages.x86_64-linux.cephadm-tentacle.host` or `cephadm-umbrella.host`, the track of
+        `image`'s release. Required: a default would be built from nixpkgs' Ceph, which is neither track.
+        Its units carry `X-StopOnRemoval=false`; the drop-in writer covers units written by an unpatched
+        cephadm (an upstream image).
       '';
     };
 

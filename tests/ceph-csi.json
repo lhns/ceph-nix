@@ -1,0 +1,4 @@
+{
+  "tag": "v3.18.1",
+  "image": "ghcr.io/lhns/ceph-csi-x86-64-v2@sha256:d706364a170eeea45d574f52d32fd4aa85cf225d77c318cf222b07166b5804f4"
+}

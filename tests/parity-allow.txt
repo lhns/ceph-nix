@@ -305,5 +305,21 @@ pydist:ceph-iscsi  # ceph-iscsi is installed (nix/pkgs/ceph-iscsi.nix, format ot
 # Linkage ("so:<binary>:<soname>", tests/parity.sh, tests/elfneeded.py): sonames upstream's binaries link directly that
 # ours does not reach at all. Versions are dropped from the names.
 
-so:*:libthrift.so  # [el9] upstream's el9 build has Jaeger tracing (WITH_JAEGER, thrift); nixpkgs builds with WITH_JAEGER=false, see the build deviations in the ADR, ADR 0002
-so:*:libcurl.so  # [el9] libceph-common links curl together with thrift in the el9 build (Jaeger's opentelemetry-cpp HTTP exporter); ours has no Jaeger, ADR 0002
+# Only the binaries that show the gap (the el9 parity log), so a new one is noticed. Jaeger: nixpkgs builds WITH_JAEGER=false,
+# see the build deviations in the ADR.
+so:ceph-fuse:libthrift.so  # [el9] Jaeger tracing (thrift) in upstream's el9 build, not in ours, ADR 0002
+so:ceph-mds:libthrift.so  # [el9] Jaeger tracing (thrift) in upstream's el9 build, not in ours, ADR 0002
+so:ceph-mgr:libthrift.so  # [el9] Jaeger tracing (thrift) in upstream's el9 build, not in ours, ADR 0002
+so:ceph-mon:libthrift.so  # [el9] Jaeger tracing (thrift) in upstream's el9 build, not in ours, ADR 0002
+so:ceph-osd:libthrift.so  # [el9] Jaeger tracing (thrift) in upstream's el9 build, not in ours, ADR 0002
+so:libceph-common:libthrift.so  # [el9] Jaeger tracing (thrift) in upstream's el9 build, not in ours, ADR 0002
+so:rbd-mirror:libthrift.so  # [el9] Jaeger tracing (thrift) in upstream's el9 build, not in ours, ADR 0002
+so:rbd-nbd:libthrift.so  # [el9] Jaeger tracing (thrift) in upstream's el9 build, not in ours, ADR 0002
+so:ceph-fuse:libcurl.so  # [el9] curl comes with thrift (Jaeger's HTTP exporter) in upstream's el9 build, not in ours, ADR 0002
+so:ceph-mds:libcurl.so  # [el9] curl comes with thrift (Jaeger's HTTP exporter) in upstream's el9 build, not in ours, ADR 0002
+so:ceph-mgr:libcurl.so  # [el9] curl comes with thrift (Jaeger's HTTP exporter) in upstream's el9 build, not in ours, ADR 0002
+so:ceph-mon:libcurl.so  # [el9] curl comes with thrift (Jaeger's HTTP exporter) in upstream's el9 build, not in ours, ADR 0002
+so:ceph-osd:libcurl.so  # [el9] curl comes with thrift (Jaeger's HTTP exporter) in upstream's el9 build, not in ours, ADR 0002
+so:libceph-common:libcurl.so  # [el9] curl comes with thrift (Jaeger's HTTP exporter) in upstream's el9 build, not in ours, ADR 0002
+so:rbd-mirror:libcurl.so  # [el9] curl comes with thrift (Jaeger's HTTP exporter) in upstream's el9 build, not in ours, ADR 0002
+so:rbd-nbd:libcurl.so  # [el9] curl comes with thrift (Jaeger's HTTP exporter) in upstream's el9 build, not in ours, ADR 0002

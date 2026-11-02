@@ -4,7 +4,7 @@
 # of tests/cephadm.sh on a CPU without AVX2 (rgw with S3, NFS and iSCSI from the other node, dashboard REST API,
 # rbd-mirror, cephfs-mirror, ceph-exporter), checked again after the reboot.
 #
-# Slow (about 30 minutes, 2 GB image), so it is a package run by .github/workflows/vm-tests.yml, not a check.
+# Slow (about 42 to 52 minutes, 2 GB image), so it is a package run by .github/workflows/vm-tests.yml, not a check.
 {
   pkgs,
   self,

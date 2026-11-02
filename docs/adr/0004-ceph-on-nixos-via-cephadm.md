@@ -45,7 +45,8 @@ does not import `nixos-cloudinit`; consumers compose it with their base.
   generation adds under the same name would be hidden.
 - `/etc/environment` is host-wide: every unit that reads it gets that PATH.
 - Untested: `system.etc.overlay` and the systemd initrd (the module refuses the former).
-- The host's cephadm and the image's are the same build; keep `cephadmPackage` at the Ceph release of `image`.
+- The host's cephadm and the image's are the same build; keep `cephadmPackage` at the Ceph release of `image`
+  (see the amendment: it has no default).
 - Kernel rbd/cephfs clients (`clientKernelModules`) cannot use the default AES256KRB5 keys of Ceph 20 (Tentacle) and later
   (EINVAL on mount). They need the legacy cipher: `ceph mon set auth_allowed_ciphers aes,aes256k` and a client key created with
   `--key_type aes`; the mons then warn (`AUTH_INSECURE_*`). The VM test does this for Ceph 20 and later (confirmed on Tentacle 20.2.4).
@@ -58,3 +59,9 @@ does not import `nixos-cloudinit`; consumers compose it with their base.
   with our image on a CPU without AVX2 (a v2-only host). `test-ceph-cpu` is its negative control: on that CPU
   upstream's image fails with glibc's x86-64-v3 error and ours runs. The upstream image is a parameter of the
   host test (`upstream = true`) and is not run in CI.
+
+## Amendment (2026-11)
+
+`cephadmPackage` has no module default any more (the Decision text above says it defaults to the image's build). A
+default can only be built from the module's own `pkgs`, i.e. nixpkgs' Ceph, which is neither of our tracks. Set it to
+`packages.x86_64-linux.cephadm-tentacle.host` or `cephadm-umbrella.host` of the same release as `image`.

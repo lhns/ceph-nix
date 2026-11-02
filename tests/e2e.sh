@@ -2,16 +2,20 @@
 # ceph-csi's acceptance e2e (the specs labelled "acceptance" in upstream's .github/workflows/e2e-minikube-acceptance.yaml)
 # against a Rook cluster running our Ceph image. Adapted from lhns/ceph-csi-x86-64-v2's test/e2e.sh.
 #   e2e.sh CEPH_IMAGE [K8S_MINOR]
-# CEPH_IMAGE is a docker image on this machine (the loaded image). ceph-csi is upstream at the newest tag that
-# lhns/ceph-csi-x86-64-v2 released, with that repo's image deployed under the name upstream's scripts use.
-# Needs: docker, go, gh (GH_TOKEN) and sudo; runs minikube.
+# CEPH_IMAGE is a docker image on this machine (the loaded image). ceph-csi is upstream at the tag pinned in
+# tests/ceph-csi.json, with that repo's image (pinned by digest there) deployed under the name upstream's scripts use.
+# Bump both together by hand when lhns/ceph-csi-x86-64-v2 releases.
+# Needs: docker, go, jq and sudo; runs minikube.
 set -xeEuo pipefail
 ceph_image=$1 minor=${2:-1.35}
 here=$(cd "$(dirname "$0")" && pwd)
 work=${E2E_DIR:-$PWD/e2e-work}
 logdir=/tmp/acceptance-e2e-logs
 
-tag=${CEPH_CSI_TAG:-$(gh release list -R lhns/ceph-csi-x86-64-v2 --limit 1 --json tagName -q '.[0].tagName')}
+pins=$here/ceph-csi.json
+tag=${CEPH_CSI_TAG:-$(jq -r .tag "$pins")}
+ours=$(jq -r .image "$pins")
+[ "$tag" = "$(jq -r .tag "$pins")" ] || ours=ghcr.io/lhns/ceph-csi-x86-64-v2:$tag # an overridden tag is unpinned
 echo "ceph-csi $tag"
 mkdir -p "$work"
 if [ ! -d "$work/ceph-csi" ]; then
@@ -30,7 +34,6 @@ KUBE_VERSION=$(curl -sfL "https://dl.k8s.io/release/stable-$minor.txt")
 export KUBE_VERSION CONTAINER_CMD=docker
 
 # What upstream's scripts deploy is quay.io/cephcsi/cephcsi:<CSI_IMAGE_VERSION>; use the rebuilt image under that name.
-ours=ghcr.io/lhns/ceph-csi-x86-64-v2:$tag
 docker pull "$ours"
 docker tag "$ours" "quay.io/cephcsi/cephcsi:$CSI_IMAGE_VERSION"
 # Rook runs this one. VM_DRIVER=none (build.env): the host's docker is the node, so tagging is all it takes.

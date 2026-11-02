@@ -35,13 +35,17 @@ done
 run "$up" 'for d in /usr/bin /usr/sbin /usr/libexec/ceph /usr/lib64/ceph /usr/lib64/rados-classes /usr/lib64/ganesha /usr/lib64/tcmu-runner; do
 	ls -A "$d" 2>/dev/null | sed "s|^|$d/|"; done
 	ls -d /usr/lib64/lib{rados,rbd,cephfs,rgw,radosstriper,cephsqlite}.so* 2>/dev/null
-	find /usr/share/ceph/mgr \( -type f -o -type l \) ! -path "*/__pycache__/*" ! -name "*.pyc" 2>/dev/null; true' </dev/null | sort -u >"$work/upstream.txt"
+	find /usr/share/ceph/mgr \( -type f -o -type l \) ! -path "*/__pycache__/*" ! -name "*.pyc" 2>/dev/null; true' </dev/null \
+	| sort -u >"$work/upstream.txt" || fail "cannot list the files of upstream's image"
 echo "upstream entries: $(wc -l <"$work/upstream.txt")"
+# an empty or truncated list would make everything below pass (CI shows about 3150 for Tentacle, 3270 for Umbrella)
+[ "$(wc -l <"$work/upstream.txt")" -gt 1500 ] || fail "upstream's file list has only $(wc -l <"$work/upstream.txt") entries"
 for d in /usr/lib64/ceph/ /usr/lib64/rados-classes/ /usr/lib64/ganesha/ /usr/lib64/tcmu-runner/ /usr/lib64/lib; do
 	echo "  $d*: $(grep -c "^$d" "$work/upstream.txt")"; done
 echo "upstream mgr files: $(grep -c "^/usr/share/ceph/mgr/" "$work/upstream.txt"); dashboard frontend files: $(grep -c "^/usr/share/ceph/mgr/dashboard/frontend/" "$work/upstream.txt")"
 # upstream's /usr/sbin may be /usr/bin (merged usr): an entry exists if it does in either place
-run "$ours" 'while read -r p; do [ -e "$p" ] || echo "$p"; done' <"$work/upstream.txt" | sort -u >"$work/missing.txt"
+run "$ours" 'while read -r p; do [ -e "$p" ] || echo "$p"; done' <"$work/upstream.txt" | sort -u >"$work/missing.txt" \
+	|| fail "cannot test upstream's files in our image"
 
 # --- python distributions and modules (appended to the missing entries, so allow/stale handling is shared)
 pyrun() { local img=$1; shift; docker run --rm -e PYTHONDONTWRITEBYTECODE=1 -v "$here/pydists.py:/pydists.py:ro" -v "$work/pynames.txt:/pynames.txt:ro" --entrypoint python3 "$img" /pydists.py "$@" </dev/null; }
@@ -77,20 +81,26 @@ sort -u -o "$work/missing.txt" "$work/missing.txt"
 
 # Entries tagged [el9]/[el10] (the upstream image's userland) are not stale-checked for the other one.
 userland=${PARITY_USERLAND:-el9}
-patterns() { # glob patterns of a list file, checking each has an ADR 0002 reason; $2: file for the patterns of other userlands
-	local f=$1 line tag
+patterns() { # "entry<TAB>glob" lines of a list file, checking each has an ADR 0002 reason; $2: file for the entries of other userlands
+	# `/usr/*/x` is documented as /usr/bin/x and /usr/sbin/x only, but a case glob's `*` also matches `/`: expand it
+	local f=$1 line tag pat
 	while IFS= read -r line; do
 		case $line in '' | '#'*) continue ;; esac
 		grep -q '#.*ADR 0002' <<<"$line" || fail "$f: entry without '# reason, ADR 0002': $line"
-		echo "${line%%#*}" | sed 's/[[:space:]]*$//'
+		pat=$(echo "${line%%#*}" | sed 's/[[:space:]]*$//')
+		case $pat in
+		/usr/\*/*) printf '%s\t/usr/bin/%s\n%s\t/usr/sbin/%s\n' "$pat" "${pat#/usr/*/}" "$pat" "${pat#/usr/*/}" ;;
+		*) printf '%s\t%s\n' "$pat" "$pat" ;;
+		esac
 		tag=$(grep -o '#[[:space:]]*\[el[0-9]*\]' <<<"$line" | grep -o 'el[0-9]*')
 		if [ -n "$tag" ] && [ "$tag" != "$userland" ] && [ -n "${2:-}" ]; then
-			echo "${line%%#*}" | sed 's/[[:space:]]*$//' >>"$2"
+			echo "$pat" >>"$2"
 		fi
 	done <"$f"
 }
 : >"$work/other.pat"
 patterns "$here/parity-allow.txt" "$work/other.pat" >"$work/allow.pat"
+cut -f2 "$work/allow.pat" >"$work/allow.glob"
 
 matches() { # lines of $1 matching any glob of $2
 	local p path
@@ -101,7 +111,7 @@ matches() { # lines of $1 matching any glob of $2
 		done <"$2"
 	done <"$1"
 }
-matches "$work/missing.txt" "$work/allow.pat" | sort -u >"$work/allowed.txt"
+matches "$work/missing.txt" "$work/allow.glob" | sort -u >"$work/allowed.txt"
 comm -23 "$work/missing.txt" "$work/allowed.txt" >"$work/gaps.txt"
 
 echo "missing in ours: $(wc -l <"$work/missing.txt"); allowed: $(wc -l <"$work/allowed.txt"); gaps: $(wc -l <"$work/gaps.txt")"
@@ -110,17 +120,19 @@ if [ -s "$work/gaps.txt" ]; then
 	fail "files missing in our image"
 fi
 echo "== allowed"; cat "$work/allowed.txt"
-# stale entries: an allow entry that explains no gap is a failure
-while IFS= read -r p; do
-	used=
+# stale entries: an allow entry (any of its expanded globs) that explains no gap is a failure
+: >"$work/used.pat"
+while IFS=$'\t' read -r entry p; do
 	while IFS= read -r path; do
 		# shellcheck disable=SC2254
-		case $path in $p) used=1; break ;; esac
+		case $path in $p) echo "$entry" >>"$work/used.pat"; break ;; esac
 	done <"$work/missing.txt"
-	[ -n "$used" ] && continue
-	grep -qxF -- "$p" "$work/other.pat" && continue
-	fail "unused allow entry: $p"
 done <"$work/allow.pat"
+while IFS= read -r entry; do
+	grep -qxF -- "$entry" "$work/used.pat" && continue
+	grep -qxF -- "$entry" "$work/other.pat" && continue
+	fail "unused allow entry: $entry"
+done < <(cut -f1 "$work/allow.pat" | sort -u)
 
 # --- mgr modules importable
 cat >"$work/mgrimport.py" <<'PY'
