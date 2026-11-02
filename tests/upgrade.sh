@@ -295,7 +295,7 @@ step "after: NFS grace table"
 # Ganesha 5.9 (Tentacle) is in the grace table as "<rank>", 9.16 (Umbrella) as "node<rank>": it prepends "node" to
 # cephadm's numeric nodeid, and so does its ganesha-rados-grace, which therefore cannot name the old key. On the way
 # out the 5.9 daemon starts a grace period under its old name, which nobody lifts: the export stays in grace and reads
-# hang. The fix is the operator procedure in README ("Migrating 20.2.4 -> 21.2.0"), run here verbatim.
+# hang. The fix is the operator procedure in README ("NFS grace step"), run here verbatim.
 # NFS_STALE_GRACE=1: this leg must find such a key (when it stops, upstream has fixed it); otherwise it must not.
 grace_dump() { tbx ganesha-rados-grace --pool .nfs --ns nfs1 dump; }
 grace_dump | tee "$art/after/grace-before-fix.txt"

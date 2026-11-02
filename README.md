@@ -2,13 +2,37 @@
 
 Ceph built from source with Nix, for hosts without x86-64-v3 (AVX2):
 
-- an OCI image with feature parity to `quay.io/ceph/ceph`, for cephadm and Rook;
+- an OCI image that tracks `quay.io/ceph/ceph` (what is and is not verified: [below](#verified)), for cephadm and Rook;
 - a NixOS module for Ceph hosts managed by cephadm with that image;
 - OpenCAS packages and a NixOS module, from [lhns/opencas-nix](https://github.com/lhns/opencas-nix) (an input);
 - a NixOS module for the build host and its binary cache.
 
 Work in progress. Decisions are in [`docs/adr/`](docs/adr). The ceph-csi counterpart is
-[lhns/ceph-csi-x86-64-v2](https://github.com/lhns/ceph-csi-x86-64-v2).
+[lhns/ceph-csi-x86-64-v2](https://github.com/lhns/ceph-csi-x86-64-v2). Drafted, not yet filed upstream bug reports:
+[`docs/upstream-reports.md`](docs/upstream-reports.md).
+
+## Verified
+
+"Verified" means CI runs it on every image change (`ceph.yml`, `vm-tests.yml`), for both tracks unless noted.
+
+- File trees, python distributions and linkage against upstream's image (`tests/parity.sh`), with the allowlist and
+  the build deviations of [ADR 0002](docs/adr/0002-parity-with-the-upstream-image.md); tcmalloc heap commands and
+  `osd_memory_target` autotuning.
+- NixOS VM tests on a CPU without AVX2 (`.#test-ceph-host`): RBD, CephFS, erasure-coded pools, RGW with S3, NFS,
+  iSCSI, the dashboard API, the rbd-mirror and cephfs-mirror daemons, the exporter, and a reboot.
+- `tests/cephadm.sh`: a cephadm cluster on the image, the functional checks on real mounts.
+- Upgrades: upstream v20.2.4 to ours (`upgrade.sh`), ours Tentacle to Umbrella (`migrate`), and the same between
+  upstream's images (`migrate-control`) as the reference.
+- CPU negative control: upstream's image is refused on an Ivy Bridge CPU model and runs on Haswell; ours runs on both.
+- ceph-csi's acceptance e2e on Rook with the image; Trivy: CRITICAL findings with a fix fail the build
+  ([ADR 0006](docs/adr/0006-test-strategy.md)).
+
+Not verified:
+
+- Replication through rbd-mirror and cephfs-mirror: only that the daemons run.
+- Multi-host failure drills (node loss, network partitions).
+- Performance: no benchmarks against upstream's image.
+- Real Ivy Bridge hardware: the CPU tests use qemu and masked KVM CPUs.
 
 ## Ceph host
 
@@ -82,18 +106,35 @@ new users can depend on opencas-nix directly. Its README has the options and a u
 - Umbrella (21.2.0): the same scope with the source bumped, `.#ceph-image` (also `.#ceph-image-umbrella`,
   `.#ceph-umbrella`, `.#test-ceph-cpu-umbrella`, `.#test-ceph-host-umbrella`).
 
-Neither is in cache.nixos.org. A from-source build takes about 1.5 h on a GitHub-hosted runner; CI builds each track
+Neither is in cache.nixos.org. A cold from-source build takes about 2 h per track on a GitHub-hosted runner; CI builds each track
 once per derivation and keeps the result in the Actions cache
 ([ADR 0011](docs/adr/0011-both-tracks-built-with-shared-overrides.md)). CI tests both tracks the same way and the
 migration from one to the other.
 
-### Migrating 20.2.4 -> 21.2.0
+### Upgrading and migrating
+
+A cluster on upstream's `quay.io/ceph/ceph` moves to this image in two `ceph orch upgrade` steps, each tested in CI
+(`tests/upgrade.sh`, `migrate`, `migrate-control`). Set `services.ceph-host.image` and the host's cephadm to the target
+release first (hosts that run cephadm from this flake), and pin images by digest:
+
+1. Upstream v20.2.4 to ours v20.2.4: `ceph orch upgrade start --image ghcr.io/lhns/ceph-nix@sha256:<v20.2.4 digest>`.
+   Same version, so only the container changes; wait for `ceph orch upgrade status` to finish and for HEALTH_OK.
+2. Ours v20.2.4 to ours v21.2.0: `ceph orch upgrade start --image ghcr.io/lhns/ceph-nix@sha256:<v21.2.0 digest>`,
+   then the NFS grace step below for each NFS cluster. Upstream v20.2.4 to upstream v21.2.0 behaves the same way.
+
+Afterwards `ceph versions` shows one version (the old rgw daemon can stay listed for a few minutes) and the
+`AUTH_INSECURE_KEYS_*` warnings that cephadm's Tentacle upgrade leaves may remain until the old-style keys are gone.
+`CEPHADM_STRAY_DAEMON` naming `nfs-ganesha.nfs.<rank>` is expected on 21.2.0, upstream's image included
+(`tests/lib.sh`; [report](docs/upstream-reports.md)).
+
+#### NFS grace step (20.2.4 -> 21.2.0)
 
 `ceph orch upgrade` works, but NFS exports stay in their grace period afterwards (opens and reads hang; health stays
-OK). Upstream's images do the same. Ganesha 5.9 (Tentacle) is in the grace table under cephadm's nodeid `0`,
-Ganesha 9.16 (Umbrella) under `node0`: it prepends `node` to a numeric nodeid. The 5.9 daemon requests grace under
-`0` when it stops, and no daemon ever lifts it. Once the nfs daemons run 21.2.0, run this in `cephadm shell` for
-each NFS cluster (`ceph nfs cluster ls`):
+OK). Upstream's images do the same. `tests/upgrade.sh` runs this step on the migration legs (`NFS_STALE_GRACE=1`) and
+fails if the stale key is absent, so the step is required today and CI tells us when it becomes obsolete. Ganesha 5.9
+(Tentacle) is in the grace table under cephadm's nodeid `0`, Ganesha 9.16 (Umbrella) under `node0`: it prepends `node`
+to a numeric nodeid. The 5.9 daemon requests grace under `0` when it stops, and no daemon ever lifts it. Once the nfs
+daemons run 21.2.0, run this in `cephadm shell` for each NFS cluster (`ceph nfs cluster ls`):
 
 ```sh
 c=<cluster id>
@@ -109,8 +150,7 @@ ganesha-rados-grace --pool .nfs --ns $c dump    # within a minute: rec=0, no N
 `ganesha-rados-grace remove 0` removes the live daemon's key. If you ran that, `ganesha-rados-grace add 0` puts it
 back. Removing a key does not end the grace period by itself. `start` sets need-grace on the live `node<k>` keys,
 and the daemons lift it themselves, which ends the period. Exports, data and the daemons are not touched, and
-nothing is restarted. `tests/upgrade.sh` runs these commands in the `migrate` and `migrate-control` CI legs,
-with one client mount kept across the upgrade and a fresh mount after it.
+nothing is restarted. The CI legs keep one client mount across the upgrade and make a fresh mount after it.
 
 ## Releases
 

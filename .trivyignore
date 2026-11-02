@@ -1,0 +1,8 @@
+# Findings the scan job (ceph-track.yml) does not gate on. One ID per line (CVE or GHSA), the line before it a
+# "# reason" saying why it does not apply to this image. No entry without a reason; remove it when the cause is gone.
+
+# certifi 2026.1.4 is flagged for the emSign roots in the cacert.pem it bundles. nixpkgs' certifi deletes that file and
+# links certifi/cacert.pem to its cacert package's ca-bundle.crt (pkgs/development/python-modules/certifi, postPatch),
+# so only the version string matches. Whether cacert still trusts emSign is a nixpkgs question; recheck on the next
+# nixpkgs bump.
+GHSA-6q48-6c7w-9gw2

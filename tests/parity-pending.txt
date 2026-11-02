@@ -1,3 +1,0 @@
-# Gaps in the Tentacle dev image (nixpkgs' Ceph) that the Umbrella build closes. Tolerated only with PARITY_PENDING_OK=1.
-# One shell glob per line, then "# reason, ADR 0002". Currently none: iSCSI (tcmu-runner, ceph-iscsi) and
-# libstoragemgmt are packaged in nix/pkgs.

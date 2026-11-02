@@ -30,7 +30,7 @@ derivation, so Tentacle can no longer be a cache.nixos.org hit.
 
 ## Consequences
 
-- A change to either Ceph derivation (nixpkgs bump, override) costs one cold build of about 1.5 h per track. The
+- A change to either Ceph derivation (nixpkgs bump, override) costs one cold build of about 2 h per track. The
   deltas live in one place and apply to both tracks.
 - The Tentacle image is no longer reproducible from cache.nixos.org alone; the rest of ADR 0010 (no self-hosted
   builder, 7-day eviction, branch-scoped caches, unsigned imports) is unchanged.
