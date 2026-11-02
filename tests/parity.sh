@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # File-tree parity with the upstream image, ADR 0002 dimension (a).
 #   parity.sh UPSTREAM_IMAGE OUR_IMAGE EXPECTED_MAJOR_MINOR      e.g. quay.io/ceph/ceph:v20.2.4 ceph-nix:... 20.2
-# Every entry of upstream's /usr/bin, /usr/sbin, /usr/libexec/ceph, /usr/lib64/ceph and /usr/share/ceph/mgr must exist
+# Every entry of upstream's /usr/bin, /usr/sbin, /usr/libexec/ceph, /usr/lib64/{ceph,rados-classes,ganesha,tcmu-runner},
+# the Ceph libraries /usr/lib64/lib{rados,rbd,cephfs,rgw,radosstriper,cephsqlite}.so* and /usr/share/ceph/mgr must exist
 # (resolve) in ours, unless tests/parity-allow.txt allows it. Gaps the Umbrella build closes are in
 # tests/parity-pending.txt and only tolerated with PARITY_PENDING_OK=1. Both files: one shell glob per line, then
 # "# reason, ADR 0002".
@@ -9,8 +10,12 @@
 # Also the Python the mgr runs on (tests/pydists.py): every distribution installed in upstream's python3, and every
 # top-level module no distribution owns, is present in ours ("pydist:<name>" / "pymod:<name>" entries, normalized
 # names), same allowlist. And the dashboard's optional gRPC/NVMe-oF client imports, which fails silently otherwise.
+# Also the linkage: the DT_NEEDED sonames (versions dropped) of the daemons, ceph-fuse, rbd-nbd and the Ceph libraries
+# (tests/elfneeded.py). Sonames upstream links directly and ours does not reach at all are "so:<binary>:<soname>"
+# entries, same allowlist; the rest is printed as info.
 # Also: `ceph -v` is EXPECTED_MAJOR_MINOR, and every mgr module that imports in upstream's image imports in ours.
 set -uo pipefail
+export LC_ALL=C # sort and comm must agree
 up=$1 ours=$2 expected=$3
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
@@ -29,10 +34,13 @@ done
 
 # --- file tree
 # the mgr tree is compared file by file (module code, dashboard frontend), the rest by directory entry
-run "$up" 'for d in /usr/bin /usr/sbin /usr/libexec/ceph /usr/lib64/ceph; do
+run "$up" 'for d in /usr/bin /usr/sbin /usr/libexec/ceph /usr/lib64/ceph /usr/lib64/rados-classes /usr/lib64/ganesha /usr/lib64/tcmu-runner; do
 	ls -A "$d" 2>/dev/null | sed "s|^|$d/|"; done
+	ls -d /usr/lib64/lib{rados,rbd,cephfs,rgw,radosstriper,cephsqlite}.so* 2>/dev/null
 	find /usr/share/ceph/mgr \( -type f -o -type l \) ! -path "*/__pycache__/*" ! -name "*.pyc" 2>/dev/null; true' </dev/null | sort -u >"$work/upstream.txt"
 echo "upstream entries: $(wc -l <"$work/upstream.txt")"
+for d in /usr/lib64/ceph/ /usr/lib64/rados-classes/ /usr/lib64/ganesha/ /usr/lib64/tcmu-runner/ /usr/lib64/lib; do
+	echo "  $d*: $(grep -c "^$d" "$work/upstream.txt")"; done
 echo "upstream mgr files: $(grep -c "^/usr/share/ceph/mgr/" "$work/upstream.txt"); dashboard frontend files: $(grep -c "^/usr/share/ceph/mgr/dashboard/frontend/" "$work/upstream.txt")"
 # upstream's /usr/sbin may be /usr/bin (merged usr): an entry exists if it does in either place
 run "$ours" 'while read -r p; do [ -e "$p" ] || echo "$p"; done' <"$work/upstream.txt" | sort -u >"$work/missing.txt"
@@ -46,6 +54,27 @@ echo "upstream python: $(grep -c '^pydist:' "$work/pyupstream.txt") distribution
 cp "$work/pyupstream.txt" "$work/pynames.txt"
 pyrun "$ours" missing /pynames.txt | sort -u >"$work/pymissing.txt" || fail "cannot check python distributions in our image"
 cat "$work/pymissing.txt" >>"$work/missing.txt"
+sort -u -o "$work/missing.txt" "$work/missing.txt"
+
+# --- linkage: DT_NEEDED sonames of the daemons and libraries, in the image's own python3 (no readelf in a Nix image)
+elfrun() { docker run --rm -v "$here/elfneeded.py:/elfneeded.py:ro" --entrypoint python3 "$1" /elfneeded.py </dev/null; }
+elfrun "$up" | sort -u >"$work/elf-up.txt" || fail "cannot read the linkage of upstream's image"
+elfrun "$ours" | sort -u >"$work/elf-ours.txt" || fail "cannot read the linkage of our image"
+for k in up ours; do
+	grep '^so:' "$work/elf-$k.txt" >"$work/so-$k.txt"
+	sed -n 's/^closure:/so:/p' "$work/elf-$k.txt" | sort -u >"$work/closure-$k.txt"
+	grep -E '^(absent|error|probe):' "$work/elf-$k.txt" | sed "s/^/$k: /"
+done
+echo "linkage: $(wc -l <"$work/so-up.txt") upstream direct sonames, $(wc -l <"$work/so-ours.txt") ours"
+# upstream links it directly: a gap, unless ours reaches it through a shared library (upstream bundles rocksdb and boost
+# statically, ours uses the shared ones, so zlib, lz4 and snappy come in through them)
+comm -23 "$work/so-up.txt" "$work/so-ours.txt" >"$work/so-direct.txt"
+comm -12 "$work/so-direct.txt" "$work/closure-ours.txt" >"$work/so-transitive.txt"
+comm -23 "$work/so-direct.txt" "$work/closure-ours.txt" >"$work/so-missing.txt"
+group() { awk -F: '{a[$3]=a[$3]" "$2} END{for(k in a)print "  " k ":" a[k]}' | sort; }
+echo "== linkage only in ours (info)"; comm -13 "$work/so-up.txt" "$work/so-ours.txt" | group
+echo "== linkage upstream has directly, ours reaches through a shared library (info)"; group <"$work/so-transitive.txt"
+cat "$work/so-missing.txt" >>"$work/missing.txt"
 sort -u -o "$work/missing.txt" "$work/missing.txt"
 
 # Entries tagged [el9]/[el10] (the upstream image's userland) are not stale-checked for the other one.
