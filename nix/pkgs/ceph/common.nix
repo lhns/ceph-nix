@@ -11,7 +11,7 @@
   # librbd's persistent write-log cache on persistent memory, with the shared libpmem/libpmemobj (upstream el9)
   withRbdRwl ? false,
   # Tentacle's rocksdb fork lacks `#include <cstdint>` in db/blob/blob_file_meta.h (Umbrella's has it); the
-  # bundled rocksdb is configured with Ceph's CXX flags, so force the include for C++
+  # bundled rocksdb is configured with Ceph's CXX flags, so force the include for C++ (joined form: cmakeFlags are split at spaces)
   forceCstdint ? false,
 }:
 final: prev: {
@@ -41,7 +41,7 @@ final: prev: {
             # the spec builds the SSD mode of the persistent write-back cache; nixpkgs leaves it off
             (lib.cmakeBool "WITH_RBD_SSD_CACHE" true)
           ]
-          ++ lib.optional forceCstdint (lib.cmakeFeature "CMAKE_CXX_FLAGS" "-include cstdint")
+          ++ lib.optional forceCstdint (lib.cmakeFeature "CMAKE_CXX_FLAGS" "-includecstdint")
           ++ lib.optionals withRbdRwl [
             (lib.cmakeBool "WITH_RBD_RWL" true)
             (lib.cmakeBool "WITH_SYSTEM_PMDK" true)
