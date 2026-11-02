@@ -1,6 +1,6 @@
 # Upstream bug reports (drafts, not filed)
 
-Four problems found while testing this image. They are not packaging bugs: upstream's own images behave the same,
+Six problems found while testing this image. They are not packaging bugs: upstream's own images behave the same,
 which the control legs in CI show. Each draft says what the repo's code, comments and tests establish; where that is
 thin, the draft says so instead of guessing. Check each against current upstream before filing.
 
