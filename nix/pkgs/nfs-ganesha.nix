@@ -96,6 +96,12 @@ pkgs.stdenv.mkDerivation (finalAttrs: {
     # the default config path must be /etc/ganesha/ganesha.conf (Rook mounts it there), not the store's etc
     sed -i 's|GANESHA_CONFIG_PATH "@SYSCONFDIR@/ganesha/ganesha.conf"|GANESHA_CONFIG_PATH "/etc/ganesha/ganesha.conf"|' src/include/config-h.in.cmake
     grep -q 'GANESHA_CONFIG_PATH "/etc/ganesha/ganesha.conf"' src/include/config-h.in.cmake
+  ''
+  + lib.optionalString (lib.versionOlder version "9") ''
+    # 5.9 sizes the "--cluster=<name>" buffer as strlen+8, but the prefix alone is 10 chars + NUL: a heap overflow
+    # on every RGW export load when a cluster name is set (cephadm sets it). Fixed in 9.x (+11); fortify aborts on it.
+    substituteInPlace src/FSAL/FSAL_RGW/main.c \
+      --replace-fail 'clen = strlen(RGWFSM.cluster) + 8;' 'clen = strlen(RGWFSM.cluster) + 11;'
   '';
 
   postFixup = ''
