@@ -1,6 +1,6 @@
 # 10. GitHub-hosted runners and the Actions cache for Umbrella
 
-Status: Accepted (2026-11)
+Status: Superseded by 0011 (2026-11)
 
 ## Context
 

@@ -6,6 +6,7 @@
   lib,
   stdenv,
   fetchurl,
+  cmake,
   pkg-config,
 }:
 stdenv.mkDerivation rec {
@@ -17,7 +18,12 @@ stdenv.mkDerivation rec {
     hash = "sha256-1eXt7YJc1tdC7INjUgAejLJi5CiSbnZ/VUmPFsLZd+E=";
   };
 
-  nativeBuildInputs = [ pkg-config ];
+  # cmake: libpmem2's miniasync dependency is built with it by the Makefile
+  nativeBuildInputs = [
+    cmake
+    pkg-config
+  ];
+  dontUseCmakeConfigure = true;
 
   postPatch = ''
     patchShebangs utils

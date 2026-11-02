@@ -9,4 +9,5 @@
 - [0007](0007-self-hosted-builder-and-cache.md) Self-hosted builder and binary cache (superseded by 0010)
 - [0008](0008-companions-pinned-to-upstream-versions.md) Companion daemons pinned to upstream's versions
 - [0009](0009-opencas-in-its-own-repo.md) OpenCAS in its own repository
-- [0010](0010-hosted-runners-and-actions-cache.md) GitHub-hosted runners and the Actions cache for Umbrella
+- [0010](0010-hosted-runners-and-actions-cache.md) GitHub-hosted runners and the Actions cache for Umbrella (superseded by 0011)
+- [0011](0011-both-tracks-built-with-shared-overrides.md) Both Ceph tracks are our builds, with shared overrides

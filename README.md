@@ -77,12 +77,15 @@ new users can depend on opencas-nix directly. Its README has the options and a u
 
 ## Tracks
 
-- Tentacle (20.2.x): nixpkgs' Ceph, so cached; `.#ceph-image-tentacle`.
-- Umbrella (21.2.0): nixpkgs' Ceph scope with the source bumped ([`nix/pkgs/ceph`](nix/pkgs/ceph/default.nix)),
-  `.#ceph-image` (also `.#ceph-image-umbrella`, `.#ceph-umbrella`, `.#test-ceph-cpu-umbrella`,
-  `.#test-ceph-host-umbrella`). A from-source build takes about 1.5 h on a GitHub-hosted runner; CI builds it once per
-  derivation and keeps the result in the Actions cache ([ADR 0010](docs/adr/0010-hosted-runners-and-actions-cache.md)).
-  CI tests both tracks the same way and the migration from one to the other.
+- Tentacle (20.2.x): nixpkgs' Ceph scope with our overrides ([`nix/pkgs/ceph`](nix/pkgs/ceph/default.nix)),
+  `.#ceph-image-tentacle` (also `.#ceph-tentacle`).
+- Umbrella (21.2.0): the same scope with the source bumped, `.#ceph-image` (also `.#ceph-image-umbrella`,
+  `.#ceph-umbrella`, `.#test-ceph-cpu-umbrella`, `.#test-ceph-host-umbrella`).
+
+Neither is in cache.nixos.org. A from-source build takes about 1.5 h on a GitHub-hosted runner; CI builds each track
+once per derivation and keeps the result in the Actions cache
+([ADR 0011](docs/adr/0011-both-tracks-built-with-shared-overrides.md)). CI tests both tracks the same way and the
+migration from one to the other.
 
 ### Migrating 20.2.4 -> 21.2.0
 
