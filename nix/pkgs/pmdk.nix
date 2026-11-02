@@ -24,6 +24,8 @@ stdenv.mkDerivation rec {
     pkg-config
   ];
   dontUseCmakeConfigure = true;
+  # miniasync's CMakeLists predates CMake 4's minimum policy version
+  env.CMAKE_POLICY_VERSION_MINIMUM = "3.5";
 
   postPatch = ''
     patchShebangs utils
