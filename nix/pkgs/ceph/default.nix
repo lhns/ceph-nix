@@ -39,10 +39,14 @@ let
   };
 in
 {
-  tentacle = (ceph.overrideScope (common { withRbdRwl = true; })).ceph;
+  tentacle =
+    (ceph.overrideScope (common {
+      withRbdRwl = true;
+    })).ceph;
 
   umbrella =
-    (ceph.overrideScope (lib.composeExtensions (common { withFuse3 = true; }) umbrellaScope)).ceph.overrideAttrs
+    (ceph.overrideScope (lib.composeExtensions (common { withFuse3 = true; }) umbrellaScope))
+    .ceph.overrideAttrs
       (old: {
         # 21.x builds the NVMe-oF gateway monitor client unconditionally (20.x only on some distros);
         # it runs protoc and grpc_cpp_plugin from these packages' CMake targets.
