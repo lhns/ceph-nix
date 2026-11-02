@@ -433,7 +433,8 @@ PY
 # the export's user is the bucket's owner (t)
 tbx ceph nfs export create rgw --cluster-id nfs1 --pseudo-path /rgw --bucket nfsbucket
 sudo mkdir -p /mnt/nfsrgw
-mount_nfs_rgw() { timeout 30 sudo mount -v -t nfs -o nfsvers=4.1,proto=tcp,retry=0 "$ip:/rgw" /mnt/nfsrgw 2>&1 | tee -a "$art/nfs-rgw-mount.log"; [ "${PIPESTATUS[0]}" = 0 ]; }
+# the timeout runs inside sudo and no pipe waits on mount: a mount stuck on a dead Ganesha must not hang the job
+mount_nfs_rgw() { sudo timeout -k 5 30 mount -v -t nfs -o nfsvers=4.1,proto=tcp,retry=0 "$ip:/rgw" /mnt/nfsrgw >>"$art/nfs-rgw-mount.log" 2>&1; }
 if ! wait_for 30 "nfs live rgw export reload" mount_nfs_rgw; then
 	echo "NOTE: ganesha did not load the new export live; restarting the nfs service"
 	tbx ceph orch restart nfs.nfs1
@@ -448,11 +449,11 @@ wait_for 120 "nfs rgw mount" mount_nfs_rgw || {
 }
 # small: upstream Tentacle (Ganesha 5.9) fails an 8M write through FSAL_RGW with EIO
 head -c 4096 /dev/urandom >"$work/nfsrgw.in"
-sudo cp "$work/nfsrgw.in" /mnt/nfsrgw/rgwfile
+sudo timeout -k 5 120 cp "$work/nfsrgw.in" /mnt/nfsrgw/rgwfile
 sudo umount /mnt/nfsrgw
 want=$(md5sum <"$work/nfsrgw.in" | cut -d' ' -f1)
 mount_nfs_rgw
-got=$(sudo md5sum /mnt/nfsrgw/rgwfile | cut -d' ' -f1)
+got=$(sudo timeout -k 5 120 md5sum /mnt/nfsrgw/rgwfile | cut -d' ' -f1)
 sudo umount /mnt/nfsrgw
 [ "$got" = "$want" ] || { echo "md5 through NFS: $got, want $want"; exit 1; }
 # and the file is an object in the bucket
