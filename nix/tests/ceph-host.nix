@@ -24,7 +24,7 @@ let
   inherit (common) imageInfo upstreamImage;
 
   packages = self.packages.x86_64-linux;
-  cephPkg = if track == "umbrella" then packages.ceph-umbrella else pkgs.ceph;
+  cephPkg = packages."ceph-${track}";
   ours = packages."ceph-image-${track}";
   cephadm = packages."cephadm-${track}";
 

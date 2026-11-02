@@ -1,6 +1,6 @@
 # Image packages, merged into the flake's packages: one set per Ceph track (`-tentacle`, `-umbrella`).
-# `ceph-image` is the Umbrella image. Its Ceph is a from-source build (about 1.5 h on a hosted runner) that CI builds
-# once per derivation and caches (ADR 0010); no flake check depends on it.
+# `ceph-image` is the Umbrella image. Both tracks' Ceph are from-source builds (about 1.5 h each on a hosted runner)
+# that CI builds once per derivation and caches (ADR 0011); no flake check depends on them.
 { pkgs, self }:
 let
   inherit (pkgs) lib;
@@ -84,15 +84,17 @@ let
     "ceph-image-${suffix}" = t.image;
   };
 
-  # nixpkgs' cached Ceph: the Tentacle dev track.
+  # nixpkgs' Ceph scope with our overrides (nix/pkgs/ceph): not in any cache.
+  cephs = pkgs.callPackage ../pkgs/ceph { };
+  ceph-tentacle = cephs.tentacle;
+  ceph-umbrella = cephs.umbrella;
+
   tentacle = mkTrack {
-    ceph = pkgs.ceph;
+    ceph = ceph-tentacle;
     cephRef = "tentacle";
     ganeshaVersion = "5.9";
   };
 
-  # nixpkgs' Ceph scope bumped to 21.2.0 (nix/pkgs/ceph): not in any cache.
-  ceph-umbrella = pkgs.callPackage ../pkgs/ceph { };
   umbrella = mkTrack {
     ceph = ceph-umbrella;
     cephRef = "umbrella"; # upstream's CEPH_REF for 21.x
@@ -103,6 +105,7 @@ in
 named "tentacle" tentacle
 // named "umbrella" umbrella
 // {
-  inherit ceph-umbrella;
+  inherit ceph-tentacle ceph-umbrella;
+  pmdk = pkgs.callPackage ../pkgs/pmdk.nix { };
   ceph-image = umbrella.image;
 }

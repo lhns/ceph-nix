@@ -11,7 +11,7 @@ let
   common = import ./common.nix { inherit pkgs; };
   inherit (common) imageInfo;
   packages = self.packages.x86_64-linux;
-  cephPkg = if track == "umbrella" then packages.ceph-umbrella else pkgs.ceph;
+  cephPkg = packages."ceph-${track}";
   ours = packages."ceph-image-${track}";
   loadOurs =
     if track == "tentacle" then

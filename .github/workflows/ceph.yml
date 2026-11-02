@@ -5,6 +5,7 @@ on:
   # Skip pushes that cannot change the images or their tests. No concurrency cancelling: a superseded run is cancelled
   # by hand, never automatically.
   push:
+    branches-ignore: [build-parity] # TEMP: probe stage
     paths-ignore: &skip
       - docs/**
       - "**.md"
@@ -34,6 +35,7 @@ jobs:
       track: tentacle
       image: ceph-image-tentacle
       expected_version: "20.2"
+      cached_ceph: true
 
   umbrella:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
