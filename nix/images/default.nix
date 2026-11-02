@@ -106,6 +106,5 @@ named "tentacle" tentacle
 // named "umbrella" umbrella
 // {
   inherit ceph-tentacle ceph-umbrella;
-  pmdk = pkgs.callPackage ../pkgs/pmdk.nix { };
   ceph-image = umbrella.image;
 }
