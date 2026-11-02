@@ -6,7 +6,6 @@
   lib,
   stdenv,
   fetchurl,
-  cmake,
   pkg-config,
 }:
 stdenv.mkDerivation rec {
@@ -18,17 +17,13 @@ stdenv.mkDerivation rec {
     hash = "sha256-1eXt7YJc1tdC7INjUgAejLJi5CiSbnZ/VUmPFsLZd+E=";
   };
 
-  # cmake: libpmem2's miniasync dependency is built with it by the Makefile
-  nativeBuildInputs = [
-    cmake
-    pkg-config
-  ];
-  dontUseCmakeConfigure = true;
-  # miniasync's CMakeLists predates CMake 4's minimum policy version
-  env.CMAKE_POLICY_VERSION_MINIMUM = "3.5";
+  nativeBuildInputs = [ pkg-config ];
 
   postPatch = ''
     patchShebangs utils
+    # src/deps/miniasync (a CMake project that wants perl) is for libpmem2's async API; libpmem and libpmemobj
+    # do not use it
+    printf 'all:\nclean:\nclobber:\n' > src/deps/miniasync/Makefile
   '';
 
   # pmdk sets _FORTIFY_SOURCE itself
