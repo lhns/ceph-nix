@@ -1,6 +1,6 @@
 # 9. OpenCAS in its own repository
 
-Status: Accepted (2026-10)
+Status: Accepted (2026-10); the re-export is superseded by [0012](0012-opencas-only-for-tests.md)
 
 ## Context
 

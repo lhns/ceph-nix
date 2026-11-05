@@ -4,7 +4,6 @@ Ceph built from source with Nix, for hosts without x86-64-v3 (AVX2):
 
 - an OCI image that tracks `quay.io/ceph/ceph` (what is and is not verified: [below](#verified)), for cephadm and Rook;
 - a NixOS module for Ceph hosts managed by cephadm with that image;
-- OpenCAS packages and a NixOS module, from [lhns/opencas-nix](https://github.com/lhns/opencas-nix) (an input);
 - a NixOS module for the build host and its binary cache.
 
 Work in progress. Decisions are in [`docs/adr/`](docs/adr). The ceph-csi counterpart is
@@ -107,10 +106,9 @@ command's result, or `None` when it failed: the error is then in the mgr log (`c
 
 ## OpenCAS
 
-The Open CAS packages and the `services.opencas` module live in [lhns/opencas-nix](https://github.com/lhns/opencas-nix)
-([ADR 0009](docs/adr/0009-opencas-in-its-own-repo.md)), which this flake takes as the input `opencas-nix`.
-`nixosModules.opencas` (and `overlays.default`) re-export its module (and overlay), so existing users keep working;
-new users can depend on opencas-nix directly. Its README has the options and a usage example.
+Open CAS comes from [lhns/opencas-nix](https://github.com/lhns/opencas-nix): hosts import its
+`nixosModules.opencas` directly. This flake uses it only in the ceph-host VM test, which runs OSDs on a cache device
+([ADR 0012](docs/adr/0012-opencas-only-for-tests.md)).
 
 ## Tracks
 
@@ -170,7 +168,7 @@ nothing is restarted. The CI legs keep one client mount across the upgrade and m
 
 Each Ceph release line is published as `ghcr.io/lhns/ceph-nix:v<ceph version>-<n>` (e.g. `v20.2.5-1`) and as a
 GitHub release with the same tag, whose notes give the manifest digest, the config digest, the `flake.lock` revisions
-of nixpkgs and opencas-nix and the companion versions. A tag is never moved; `<n>` goes up when the image changes
+of nixpkgs and the companion versions. A tag is never moved; `<n>` goes up when the image changes
 (for example a new nixpkgs revision with a security fix). Pin by digest, as in `services.ceph-host.image`:
 
 ```
