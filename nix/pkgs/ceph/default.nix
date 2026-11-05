@@ -45,6 +45,7 @@ in
   tentacle =
     (ceph.overrideScope (
       lib.composeExtensions (common {
+        withFuse3 = true;
         withRbdRwl = true;
         forceCstdint = true;
       }) (cephSource "20.2.5" "sha256-kWFh03HS9BpWfqeMAnnvJRUCF3mgbqIjwZAKABBS94M=") # nixpkgs is at 20.2.4

@@ -62,6 +62,8 @@ Audit of 2026-11: `ceph.spec.in` at each image's `CEPH_SHA1` (Tentacle v20.2.4 `
   so it keeps the SSD mode only.
 - fuse: Tentacle's spec uses fuse 2 like nixpkgs; Umbrella's spec uses fuse3 (`pkgconfig(fuse3)`). Fixed (ADR 0011):
   Umbrella is built with `fuse = fuse3`.
+  Tentacle 20.2.5's spec moved to fuse3 too (`rpm -q`, `ldd` in upstream's image), so both tracks use it. That is the
+  only build change in `ceph.spec.in` from 20.2.4 to 20.2.5, besides the new `rgw-policy-test` tool.
 - `WITH_TESTS=false`, `WITH_CATCH2=false` (Umbrella clones Catch2 at configure time): the spec builds the tests into
   the separate ceph-test package, which the image does not install. Accepted.
 - `WITH_UADK=false`: aarch64 only. `WITH_MGR_DASHBOARD_FRONTEND=false`: the spec passes OFF too; the prebuilt frontend
