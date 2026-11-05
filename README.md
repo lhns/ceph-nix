@@ -185,7 +185,8 @@ It compares the image config (layer content, env, cmd, labels; without the commi
 Publishing is off until the repository variable `PUBLISH` is `true` (Settings, Secrets and variables, Actions,
 Variables). Without it the workflow is a dry run: it prints "would publish v20.2.4-1, config digest ..., newest
 existing: none" to the run's step summary, and pushes nothing. [`bump.yml`](.github/workflows/bump.yml) opens a
-weekly `flake.lock` PR and an issue when upstream publishes a newer Ceph release in the tracked series.
+weekly `flake.lock` PR and an issue when upstream publishes a newer Ceph release in the tracked series, or a newer
+ceph-csi release than `tests/ceph-csi.json` pins.
 
 ## License
 
