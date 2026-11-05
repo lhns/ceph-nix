@@ -21,7 +21,7 @@ Work in progress. Decisions are in [`docs/adr/`](docs/adr). The ceph-csi counter
 - NixOS VM tests on a CPU without AVX2 (`.#test-ceph-host`): RBD, CephFS, erasure-coded pools, RGW with S3, NFS,
   iSCSI, the dashboard API, the rbd-mirror and cephfs-mirror daemons, the exporter, and a reboot.
 - `tests/cephadm.sh`: a cephadm cluster on the image, the functional checks on real mounts.
-- Upgrades: upstream v20.2.4 to ours (`upgrade.sh`), ours Tentacle to Umbrella (`migrate`), and the same between
+- Upgrades: upstream v20.2.5 to ours (`upgrade.sh`), ours Tentacle to Umbrella (`migrate`), and the same between
   upstream's images (`migrate-control`) as the reference.
 - CPU negative control: upstream's image is refused on an Ivy Bridge CPU model and runs on Haswell; ours runs on both.
 - ceph-csi's acceptance e2e on Rook with the image; Trivy: CRITICAL findings with a fix fail the build
@@ -130,17 +130,18 @@ A cluster on upstream's `quay.io/ceph/ceph` moves to this image in two `ceph orc
 (`tests/upgrade.sh`, `migrate`, `migrate-control`). Set `services.ceph-host.image` and `services.ceph-host.cephadmPackage`
 (the target track's `cephadm-tentacle.host` or `cephadm-umbrella.host`) to the target release first, and pin images by digest:
 
-1. Upstream v20.2.4 to ours v20.2.4: `ceph orch upgrade start --image ghcr.io/lhns/ceph-nix@sha256:<v20.2.4 digest>`.
+1. Upstream v20.2.5 to ours v20.2.5: `ceph orch upgrade start --image ghcr.io/lhns/ceph-nix@sha256:<v20.2.5 digest>`.
    Same version, so only the container changes; wait for `ceph orch upgrade status` to finish and for HEALTH_OK.
-2. Ours v20.2.4 to ours v21.2.0: `ceph orch upgrade start --image ghcr.io/lhns/ceph-nix@sha256:<v21.2.0 digest>`,
-   then the NFS grace step below for each NFS cluster. Upstream v20.2.4 to upstream v21.2.0 behaves the same way.
+   On an older 20.2.x, upgrade to upstream's v20.2.5 first: only the same-version switch is tested.
+2. Ours v20.2.5 to ours v21.2.0: `ceph orch upgrade start --image ghcr.io/lhns/ceph-nix@sha256:<v21.2.0 digest>`,
+   then the NFS grace step below for each NFS cluster. Upstream v20.2.5 to upstream v21.2.0 behaves the same way.
 
 Afterwards `ceph versions` shows one version (the old rgw daemon can stay listed for a few minutes) and the
 `AUTH_INSECURE_KEYS_*` warnings that cephadm's Tentacle upgrade leaves may remain until the old-style keys are gone.
 `CEPHADM_STRAY_DAEMON` naming `nfs-ganesha.nfs.<rank>` is expected on 21.2.0, upstream's image included
 (`tests/lib.sh`; [report](docs/upstream-reports.md)).
 
-#### NFS grace step (20.2.4 -> 21.2.0)
+#### NFS grace step (20.2.5 -> 21.2.0)
 
 `ceph orch upgrade` works, but NFS exports stay in their grace period afterwards (opens and reads hang; health stays
 OK). Upstream's images do the same. `tests/upgrade.sh` runs this step on the migration legs (`NFS_STALE_GRACE=1`) and
@@ -167,7 +168,7 @@ nothing is restarted. The CI legs keep one client mount across the upgrade and m
 
 ## Releases
 
-Each Ceph release line is published as `ghcr.io/lhns/ceph-nix:v<ceph version>-<n>` (e.g. `v20.2.4-1`) and as a
+Each Ceph release line is published as `ghcr.io/lhns/ceph-nix:v<ceph version>-<n>` (e.g. `v20.2.5-1`) and as a
 GitHub release with the same tag, whose notes give the manifest digest, the config digest, the `flake.lock` revisions
 of nixpkgs and opencas-nix and the companion versions. A tag is never moved; `<n>` goes up when the image changes
 (for example a new nixpkgs revision with a security fix). Pin by digest, as in `services.ceph-host.image`:
@@ -183,7 +184,7 @@ artifacts that `ceph.yml` tested, without rebuilding, if the image differs from 
 ([ADR 0003](docs/adr/0003-releases.md)). The artifacts are kept 7 days: a later release needs `ceph.yml` re-run first.
 It compares the image config (layer content, env, cmd, labels; without the commit label), not the registry digest.
 Publishing is off until the repository variable `PUBLISH` is `true` (Settings, Secrets and variables, Actions,
-Variables). Without it the workflow is a dry run: it prints "would publish v20.2.4-1, config digest ..., newest
+Variables). Without it the workflow is a dry run: it prints "would publish v20.2.5-1, config digest ..., newest
 existing: none" to the run's step summary, and pushes nothing. [`bump.yml`](.github/workflows/bump.yml) opens a
 weekly `flake.lock` PR and an issue when upstream publishes a newer Ceph release in the tracked series, or a newer
 ceph-csi release than `tests/ceph-csi.json` pins.

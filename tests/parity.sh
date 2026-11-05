@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # File-tree parity with the upstream image, ADR 0002 dimension (a).
-#   parity.sh UPSTREAM_IMAGE OUR_IMAGE EXPECTED_MAJOR_MINOR      e.g. quay.io/ceph/ceph:v20.2.4 ceph-nix:... 20.2
+#   parity.sh UPSTREAM_IMAGE OUR_IMAGE EXPECTED_MAJOR_MINOR      e.g. quay.io/ceph/ceph:v20.2.5 ceph-nix:... 20.2
 # Every entry of upstream's /usr/bin, /usr/sbin, /usr/libexec/ceph, /usr/lib64/{ceph,rados-classes,ganesha,tcmu-runner},
 # the Ceph libraries /usr/lib64/lib{rados,rbd,cephfs,rgw,radosstriper,cephsqlite}.so* and /usr/share/ceph/mgr must exist
 # (resolve) in ours, unless tests/parity-allow.txt allows it (one shell glob per line, then "# reason, ADR 0002").

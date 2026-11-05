@@ -62,7 +62,7 @@ jobs:
         with:
           name: image-umbrella
           path: umbrella
-      - name: upgrade.sh ours 20.2.4 -> ours 21.2.0
+      - name: upgrade.sh ours 20.2.5 -> ours 21.2.0
         timeout-minutes: 75
         env:
           ARTIFACT_DIR: ${{ github.workspace }}/upgrade-logs
@@ -88,7 +88,7 @@ jobs:
           # skopeo takes a digest or a tag, not both
           skopeo copy "docker://${ref%%:*}@${ref#*@}" docker-archive:upstream-21.tar:quay.io/ceph/ceph:v21.2.0
           ls -lh upstream-21.tar
-      - name: upgrade.sh upstream 20.2.4 -> upstream 21.2.0
+      - name: upgrade.sh upstream 20.2.5 -> upstream 21.2.0
         timeout-minutes: 75
         env:
           ARTIFACT_DIR: ${{ github.workspace }}/upgrade-logs
