@@ -6,7 +6,7 @@
   pmdk,
 }:
 {
-  # build ceph-fuse and the OSD's FuseStore against fuse3 (upstream el10); fuse 2 otherwise (el9, nixpkgs)
+  # build ceph-fuse and the OSD's FuseStore against fuse3 (upstream from Tentacle 20.2.5 on); fuse 2 otherwise (nixpkgs)
   withFuse3 ? false,
   # librbd's persistent write-log cache on persistent memory, with the shared libpmem/libpmemobj (upstream el9)
   withRbdRwl ? false,

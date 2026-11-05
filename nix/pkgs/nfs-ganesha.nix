@@ -1,5 +1,5 @@
 # NFS-Ganesha pinned to the release upstream's quay.io/ceph/ceph image ships for this Ceph release (ADR 0008:
-# 5.9 for Tentacle 20.2.4, 9.16 for Umbrella 21.2.0), not nixpkgs' 9.13. A different Ganesha major changes the
+# 5.9 for Tentacle 20.2.5, 9.16 for Umbrella 21.2.0), not nixpkgs' 9.13. A different Ganesha major changes the
 # rados_cluster recovery behaviour: after `ceph orch upgrade` the export stayed in grace forever (tests/upgrade.sh).
 # Same FSALs and options as upstream's RPM: FSAL_CEPH, FSAL_RGW, RADOS_RECOV, RADOS_URLS.
 # Both use the nTIRPC submodule of their release: nixpkgs' ntirpc is a different version.

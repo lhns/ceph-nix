@@ -19,3 +19,8 @@ are never overwritten. Each GitHub release records the image digest (manifest an
 - Two tracks are released: `v20.2.4-<n>` (Tentacle) and `v21.2.0-<n>` (Umbrella). Tentacle lets a cephadm
   cluster on upstream 20.2.4 switch to our image at the same version (`ceph orch upgrade`), then upgrade to
   Umbrella. Both must pass the same parity and functional tests before release.
+
+## Amendment (2026-11)
+
+Tentacle follows upstream's patch releases before anything is published: the first release is `v20.2.5-<n>`, and the
+migration starts from upstream 20.2.5. The source is overridden until nixpkgs reaches that version.

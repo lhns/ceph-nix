@@ -26,3 +26,6 @@ Each companion is packaged at the exact version upstream's `quay.io/ceph/ceph` i
 Tentacle's Ganesha 5.9 carries one patch (`nix/pkgs/nfs-ganesha.nix`): FSAL_RGW sizes the `--cluster=<name>` buffer
 too small, a heap overflow that fortify aborts on every RGW export load when cephadm sets a cluster name (fixed in
 9.x). That deviates from "the exact version upstream ships": same version, one memory-safety fix.
+
+Tentacle 20.2.5: upstream's image ships the same companion versions as 20.2.4 (`rpm -q`: `nfs-ganesha-5.9-2`,
+`tcmu-runner-1.5.2`, `ceph-iscsi-3.9`, `libstoragemgmt-1.10.1`), so nothing changes here.

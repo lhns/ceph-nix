@@ -1,5 +1,5 @@
-# The two Ceph tracks, both nixpkgs' Ceph scope with overrides: `tentacle` (20.2.x, nixpkgs' source) and `umbrella`
-# (21.2.0). Neither is a cache.nixos.org hit; CI builds each once per derivation and caches it (ADR 0011).
+# The two Ceph tracks, both nixpkgs' Ceph scope with overrides: `tentacle` (20.2.5) and `umbrella` (21.2.0). Neither is
+# a cache.nixos.org hit; CI builds each once per derivation and caches it (ADR 0011).
 # Build recipe, dependencies and the s3select/mgr-interpreter patches are nixpkgs'; both patches are still needed on
 # 21.2.0 (s3select submodule unchanged since 20.2.4, ceph/ceph#67904 unmerged).
 {
@@ -15,15 +15,18 @@ let
     pmdk = callPackage ../pmdk.nix { };
   };
 
-  umbrellaScope = final: prev: {
+  # nixpkgs' patches stay; they are applied to this tarball
+  cephSource = version: hash: _final: prev: {
     ceph-src = prev.ceph-src.overrideAttrs {
-      version = "21.2.0";
+      inherit version;
       src = fetchurl {
-        url = "https://download.ceph.com/tarballs/ceph-21.2.0.tar.gz";
-        hash = "sha256-gtPAJgkWG94TDHxBwzxfiztZGFzep355KbveLLxm44U=";
+        url = "https://download.ceph.com/tarballs/ceph-${version}.tar.gz";
+        inherit hash;
       };
     };
+  };
 
+  umbrellaScope = final: prev: {
     # 21.x installs the Cython bindings with `python -m pip install --no-build-isolation --no-deps`
     # (offline); 20.x used setup.py. The env is a callPackage of python-env.nix, so extend its withPackages.
     ceph-python-env = prev.ceph-python-env.override {
@@ -40,14 +43,22 @@ let
 in
 {
   tentacle =
-    (ceph.overrideScope (common {
-      withRbdRwl = true;
-      forceCstdint = true;
-    })).ceph;
+    (ceph.overrideScope (
+      lib.composeExtensions (common {
+        withFuse3 = true;
+        withRbdRwl = true;
+        forceCstdint = true;
+      }) (cephSource "20.2.5" "sha256-kWFh03HS9BpWfqeMAnnvJRUCF3mgbqIjwZAKABBS94M=") # nixpkgs is at 20.2.4
+    )).ceph;
 
   umbrella =
-    (ceph.overrideScope (lib.composeExtensions (common { withFuse3 = true; }) umbrellaScope))
-    .ceph.overrideAttrs
+    (ceph.overrideScope (
+      lib.composeManyExtensions [
+        (common { withFuse3 = true; })
+        (cephSource "21.2.0" "sha256-gtPAJgkWG94TDHxBwzxfiztZGFzep355KbveLLxm44U=")
+        umbrellaScope
+      ]
+    )).ceph.overrideAttrs
       (old: {
         # 21.x builds the NVMe-oF gateway monitor client unconditionally (20.x only on some distros);
         # it runs protoc and grpc_cpp_plugin from these packages' CMake targets.

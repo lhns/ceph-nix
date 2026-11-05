@@ -84,7 +84,7 @@ in
 
     image = lib.mkOption {
       type = lib.types.str;
-      example = "ghcr.io/lhns/ceph-nix:v20.2.4-1@sha256:...";
+      example = "ghcr.io/lhns/ceph-nix:v20.2.5-1@sha256:...";
       description = ''
         Container image cephadm uses, exported as `CEPHADM_IMAGE` so `cephadm bootstrap` picks it
         up and written to `/etc/ceph-nix/image`. Pin it by digest, at the Ceph release of

@@ -85,7 +85,7 @@ jobs:
             gh issue create --title "$title" --body-file "$body"
           }
 
-          # Ceph: the pins are tests/upstream-images.json, one per track, e.g. .tentacle.ref = quay.io/ceph/ceph:v20.2.4@sha256:...
+          # Ceph: the pins are tests/upstream-images.json, one per track, e.g. .tentacle.ref = quay.io/ceph/ceph:v20.2.5@sha256:...
           for track in $(jq -r 'keys[]' tests/upstream-images.json); do
             pinned=$(jq -r --arg t "$track" '.[$t].ref' tests/upstream-images.json | sed -n 's|^quay.io/ceph/ceph:\(v[0-9]*\.[0-9]*\.[0-9]*\)@.*|\1|p')
             [[ $pinned =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+$ ]] || { echo "::error::no pinned image for $track in tests/upstream-images.json"; exit 1; }

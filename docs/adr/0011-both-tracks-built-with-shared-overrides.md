@@ -38,7 +38,7 @@ derivation, so Tentacle can no longer be a cache.nixos.org hit.
   liburing; the allowlist entries for tcmalloc, libfuse3 and libpmem* are gone.
 - The wrong claim in ADR 0002 that the RBD SSD cache was available is corrected.
 
-## Amendment (2026-11)
+## Amendment (2026-11): cache key
 
 The cache key is no longer fixed. Actions cache keys are immutable, so an incomplete entry under `ceph-<track>-<drv
 hash>` could never be replaced: every later run would restore it, rebuild Ceph (2 h) and fail to save. The action now
@@ -46,3 +46,8 @@ saves under `ceph-<track>-<drv hash>-<run id>-<run attempt>` and restores with t
 `ceph-<track>-<drv hash>` (a prefix; the hash has a fixed length, so it is unambiguous). The newest matching entry wins,
 and entries saved under the old fixed key still match. A restored entry that still needs a build is superseded by the
 save that follows, so the next run restores the complete one. A hit is `cache-matched-key != ''`, not `cache-hit`.
+
+## Amendment (2026-11): fuse3 on Tentacle
+
+Upstream's spec moved Tentacle to fuse3 in 20.2.5, so both tracks now build with `fuse = fuse3`; "Tentacle stays on
+fuse 2" applied to 20.2.4.

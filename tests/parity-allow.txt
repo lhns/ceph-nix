@@ -24,6 +24,11 @@
 /usr/*/*-dummy-cert  # [el9] EL certificate helper, ADR 0002
 /usr/*/cyrusbdb2current  # [el9] EL cyrus-sasl migration helper, ADR 0002
 /usr/*/weak-modules  # EL kernel module helper, ADR 0002
+/usr/*/virt-what*  # [el9] EL virtualization probe in upstream's base image since 20.2.5, nothing in Ceph calls it, ADR 0002
+/usr/*/dmidecode  # [el9] pulled in by virt-what, nothing in Ceph calls it, ADR 0002
+/usr/*/biosdecode  # [el9] dmidecode package, ADR 0002
+/usr/*/ownership  # [el9] dmidecode package, ADR 0002
+/usr/*/vpddecode  # [el9] dmidecode package, ADR 0002
 /usr/*/kernel-install  # EL kernel helper, ADR 0002
 /usr/*/ima-*  # IMA signing tools of EL, ADR 0002
 /usr/*/evmctl  # IMA/EVM tools of EL, ADR 0002
