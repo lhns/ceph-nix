@@ -1,5 +1,5 @@
 {
-  description = "Ceph for x86-64-v2 hosts, built with Nix: container image, cephadm host module, OpenCAS";
+  description = "Ceph for x86-64-v2 hosts, built with Nix: container image, cephadm host module";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   inputs.nixos-cloudinit = {
@@ -7,7 +7,7 @@
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  # Open CAS packages and module (ADR 0009); it brings its own open-cas-src.
+  # Only the ceph-host VM test uses it: OSDs on an Open CAS device (ADR 0012).
   inputs.opencas-nix = {
     url = "github:lhns/opencas-nix";
     inputs.nixpkgs.follows = "nixpkgs";
@@ -25,8 +25,6 @@
       pkgs = nixpkgs.legacyPackages.${system};
     in
     {
-      overlays.default = opencas-nix.overlays.default;
-
       formatter.${system} = pkgs.nixfmt;
 
       packages.${system} = import ./nix/images { inherit pkgs self; } // {
@@ -56,11 +54,7 @@
         };
       };
 
-      nixosModules = {
-        ceph-host = import ./nix/modules/ceph-host.nix;
-        # Re-exported so existing users keep working; it lives in lhns/opencas-nix.
-        opencas = opencas-nix.nixosModules.opencas;
-      };
+      nixosModules.ceph-host = import ./nix/modules/ceph-host.nix;
 
       checks.${system} = {
         # Evaluates a system using the ceph-host module, without building it.
