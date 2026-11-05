@@ -13,7 +13,7 @@ on:
       - LICENSE
       - tests/*.sh  # not tests/smoke.c: nix/pkgs/ceph-smoke.nix builds it
       - tests/*.txt
-      - tests/*.json
+      - tests/ceph-csi.json # not tests/upstream-images.json: nix/tests/common.nix reads it
       - .github/dependabot.yml
       - .github/workflows/ceph.yml
       - .github/workflows/ceph-track.yml
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Free disk
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
@@ -54,7 +54,7 @@ jobs:
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm && sudo udevadm settle
           [ -w /dev/kvm ] || sudo chmod 666 /dev/kvm
           test -w /dev/kvm
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
         with:
           extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
       - uses: ./.github/actions/ceph-build

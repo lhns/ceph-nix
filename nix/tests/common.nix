@@ -1,7 +1,18 @@
 # Pieces shared by the VM tests of the ceph image and the cephadm host.
 { pkgs }:
 let
-  imageInfo = builtins.fromJSON (builtins.readFile ../ceph-image.json);
+  # The pinned Umbrella release, from the one place CI and the VM tests share: image, tag and the multi-arch digest.
+  pins = builtins.fromJSON (builtins.readFile ../../tests/upstream-images.json);
+  m = builtins.match "([^:@]+(:[0-9]+)?/[^:@]+):([^@]+)@(sha256:[0-9a-f]{64})" pins.umbrella.ref;
+  imageInfo =
+    if m == null then
+      throw "tests/upstream-images.json: umbrella.ref is not image:tag@sha256:..."
+    else
+      {
+        image = builtins.elemAt m 0;
+        tag = builtins.elemAt m 2;
+        digest = builtins.elemAt m 3;
+      };
 in
 {
   inherit imageInfo;
@@ -18,8 +29,8 @@ in
   upstreamImage = pkgs.dockerTools.pullImage {
     imageName = imageInfo.image;
     imageDigest = imageInfo.digest;
-    # fixed-output hash of the amd64 pull; update together with ceph-image.json
-    hash = "sha256-l/1Eyay6CUxLYkj1NBFPGxHQh278U4w63csVZB3IQwM=";
+    # fixed-output hash of the amd64 pull; nixPullHash beside the ref in tests/upstream-images.json
+    hash = pins.umbrella.nixPullHash;
     finalImageName = imageInfo.image;
     finalImageTag = imageInfo.tag;
     os = "linux";

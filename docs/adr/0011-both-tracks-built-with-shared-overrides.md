@@ -37,3 +37,12 @@ derivation, so Tentacle can no longer be a cache.nixos.org hit.
 - The bundled rocksdb and liburing are compiled in, so the Ceph binaries no longer link shared rocksdb, jemalloc or
   liburing; the allowlist entries for tcmalloc, libfuse3 and libpmem* are gone.
 - The wrong claim in ADR 0002 that the RBD SSD cache was available is corrected.
+
+## Amendment (2026-11)
+
+The cache key is no longer fixed. Actions cache keys are immutable, so an incomplete entry under `ceph-<track>-<drv
+hash>` could never be replaced: every later run would restore it, rebuild Ceph (2 h) and fail to save. The action now
+saves under `ceph-<track>-<drv hash>-<run id>-<run attempt>` and restores with that key plus the restore key
+`ceph-<track>-<drv hash>` (a prefix; the hash has a fixed length, so it is unambiguous). The newest matching entry wins,
+and entries saved under the old fixed key still match. A restored entry that still needs a build is superseded by the
+save that follows, so the next run restores the complete one. A hit is `cache-matched-key != ''`, not `cache-hit`.

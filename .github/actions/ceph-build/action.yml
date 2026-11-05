@@ -24,19 +24,24 @@ runs:
         probe=${probe%/bin/*}
         nix-store --export "$probe" | zstd -c | zstd -dc | nix-store --import
         nix config show trusted-users
-        echo "key=ceph-$TRACK-$hash" | tee -a "$GITHUB_OUTPUT"
+        # Cache keys are immutable, so an incomplete entry under a fixed key would stay and force a rebuild on every
+        # later run. Entries are saved under a key unique to this attempt instead, and restored by the prefix (the
+        # hash has a fixed length, so the prefix is unambiguous); the newest match wins, which is the latest save.
+        echo "base=ceph-$TRACK-$hash" | tee -a "$GITHUB_OUTPUT"
+        echo "key=ceph-$TRACK-$hash-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" | tee -a "$GITHUB_OUTPUT"
         echo "dir=$RUNNER_TEMP/ceph-$TRACK-cache" | tee -a "$GITHUB_OUTPUT"
     - name: restore the Nix cache of Ceph
       id: restore
-      uses: actions/cache/restore@v6
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.key.outputs.dir }}
         key: ${{ steps.key.outputs.key }}
+        restore-keys: ${{ steps.key.outputs.base }}
     # The cache holds only the closure's store paths that cache.nixos.org does not serve (keep.txt, as a
     # nix-store --export stream) and the list of those it does (subst.txt). Importing needs the references of the
     # kept paths in the store, so those are substituted first. A failure here only means a build below.
     - name: import the cached Ceph
-      if: steps.restore.outputs.cache-hit == 'true'
+      if: steps.restore.outputs.cache-matched-key != ''
       shell: bash # with pipefail
       env:
         DIR: ${{ steps.key.outputs.dir }}
@@ -50,20 +55,20 @@ runs:
       env:
         TRACK: ${{ inputs.track }}
         KEY: ${{ steps.key.outputs.key }}
-        HIT: ${{ steps.restore.outputs.cache-hit }}
+        MATCHED: ${{ steps.restore.outputs.cache-matched-key }}
       run: |
         # every output of the derivation (out, lib, dev, ...): the image needs them all
         nix build --dry-run ".#ceph-$TRACK^*" 2>&1 | tee "$RUNNER_TEMP/dry.log"
         if grep -q 'will be built' "$RUNNER_TEMP/dry.log"; then
           built=true
-          [ "$HIT" != true ] || echo "::warning::cache hit on $KEY, but Nix still has to build Ceph: the cache is incomplete"
+          [ -z "$MATCHED" ] || echo "::warning::restored $MATCHED, but Nix still has to build Ceph: the cache is incomplete; saving a new entry"
         else
           built=false
         fi
         start=$SECONDS
         nix build -L --no-link --print-out-paths ".#ceph-$TRACK^*" | tee "$RUNNER_TEMP/ceph-$TRACK.outs"
         if [ "$built" = true ]; then verb="built from source"; else verb="restored from the cache"; fi
-        echo "### Ceph $TRACK $verb in $((SECONDS - start))s (key $KEY)" | tee -a "$GITHUB_STEP_SUMMARY"
+        echo "### Ceph $TRACK $verb in $((SECONDS - start))s (restored: ${MATCHED:-nothing}; key to save: $KEY)" | tee -a "$GITHUB_STEP_SUMMARY"
         echo "built=$built" >>"$GITHUB_OUTPUT"
     - name: export what cache.nixos.org lacks
       if: steps.build.outputs.built == 'true'
@@ -87,7 +92,7 @@ runs:
         du -sh "$DIR" | tee -a "$GITHUB_STEP_SUMMARY"
     - name: save the Nix cache of Ceph
       if: steps.build.outputs.built == 'true'
-      uses: actions/cache/save@v6
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.key.outputs.dir }}
         key: ${{ steps.key.outputs.key }}
