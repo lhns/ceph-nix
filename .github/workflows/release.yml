@@ -128,7 +128,7 @@ jobs:
           else
             # KEEP in step with vm-tests.yml's paths-ignore
             covering vm-tests.yml '' ':(exclude)docs' ':(exclude)*.md' ':(exclude)LICENSE' \
-              ':(exclude)tests/*.sh' ':(exclude)tests/*.txt' ':(exclude)tests/*.json' \
+              ':(exclude)tests/*.sh' ':(exclude)tests/*.txt' ':(exclude)tests/ceph-csi.json' \
               ':(exclude).github/dependabot.yml' ':(exclude).github/workflows/ceph.yml' \
               ':(exclude).github/workflows/ceph-track.yml' ':(exclude).github/workflows/nix.yml'
             [ -n "$cov" ] || not_ready "no vm-tests run on main covers $sha"
