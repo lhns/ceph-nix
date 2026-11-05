@@ -29,7 +29,7 @@ defaults:
   run:
     shell: bash # with pipefail
 env:
-  # The pins of tests/upstream-images.json, resolved in the jobs that use them (the checkout is there).
+  # The pins of tests/upstream-images.json (.<track>.ref), resolved in the jobs that use them (the checkout is there).
   PINS: tests/upstream-images.json
 
 jobs:
@@ -39,9 +39,9 @@ jobs:
     outputs:
       tag: ${{ steps.load.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
         with:
           extra_nix_config: |
             system-features = nixos-test benchmark big-parallel kvm
@@ -58,6 +58,14 @@ jobs:
         run: nix path-info --derivation ".#${{ inputs.image }}" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: nix build
         run: nix build -L --no-link --print-out-paths ".#${{ inputs.image }}" | tee stream.path
+      # The CPU test runs this ELF from outside the image (tests/cpu.sh), which does not carry it. The Ceph outputs it
+      # is built against were restored above, so this does not compile Ceph.
+      - name: smoke binary
+        run: |
+          out=$(nix build --no-link --print-out-paths ".#ceph-smoke-${{ inputs.track }}")
+          mkdir smoke-bin
+          cp -L "$out/libexec/ceph-nix/smoke" smoke-bin/smoke # a copy, not the store symlink: the artifact keeps files
+          file smoke-bin/smoke
       - name: docker load and save
         id: load
         run: |
@@ -70,48 +78,58 @@ jobs:
             echo '### Image'
             echo "$tag: $(docker image inspect -f '{{.Size}}' "$tag" | numfmt --to=iec) uncompressed, $(du -h image.tar.zst | cut -f1) zstd"
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: image-${{ inputs.track }}
           path: image.tar.zst
           retention-days: 7
           compression-level: 0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: smoke-${{ inputs.track }}
+          path: smoke-bin/smoke
+          retention-days: 7
 
   cpu:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: upstream image pins
         run: |
-          echo "UPSTREAM_IMAGE=$(jq -r '.${{ inputs.track }}' "$PINS")" | tee -a "$GITHUB_ENV"
+          echo "UPSTREAM_IMAGE=$(jq -r '.${{ inputs.track }}.ref' "$PINS")" | tee -a "$GITHUB_ENV"
           # Known x86-64-v3 image (upstream's Umbrella): the negative control for the CPU test.
-          echo "UPSTREAM_V3_IMAGE=$(jq -r .umbrella "$PINS")" | tee -a "$GITHUB_ENV"
-      - uses: actions/download-artifact@v8
+          echo "UPSTREAM_V3_IMAGE=$(jq -r .umbrella.ref "$PINS")" | tee -a "$GITHUB_ENV"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: image-${{ inputs.track }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: smoke-${{ inputs.track }}
+          path: smoke-bin
       - run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static
           zstd -dc image.tar.zst | docker load
           docker pull -q "$UPSTREAM_V3_IMAGE"
+          chmod +x smoke-bin/smoke # artifacts lose the mode
       - name: ours on Ivy Bridge
-        run: tests/cpu.sh "${{ needs.build.outputs.tag }}" IvyBridge pass
+        run: tests/cpu.sh "${{ needs.build.outputs.tag }}" IvyBridge pass smoke-bin/smoke
       - name: ours on Nehalem (plain x86-64-v2, no AVX)
-        run: tests/cpu.sh "${{ needs.build.outputs.tag }}" Nehalem pass
+        run: tests/cpu.sh "${{ needs.build.outputs.tag }}" Nehalem pass smoke-bin/smoke
       - name: upstream v21.2.0 on Ivy Bridge must be refused
-        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" IvyBridge fail upstream
+        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" IvyBridge fail
       - name: upstream v21.2.0 on Haswell runs (the harness is not the failure)
-        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" Haswell pass upstream
+        run: tests/cpu.sh "$UPSTREAM_V3_IMAGE" Haswell pass
 
   parity:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: upstream image pins
         run: |
-          echo "UPSTREAM_IMAGE=$(jq -r '.${{ inputs.track }}' "$PINS")" | tee -a "$GITHUB_ENV"
-      - uses: actions/download-artifact@v8
+          echo "UPSTREAM_IMAGE=$(jq -r '.${{ inputs.track }}.ref' "$PINS")" | tee -a "$GITHUB_ENV"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: image-${{ inputs.track }}
       - run: |
@@ -127,8 +145,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: image-${{ inputs.track }}
       - name: cephadm.sh
@@ -136,7 +154,7 @@ jobs:
           ARTIFACT_DIR: ${{ github.workspace }}/cephadm-logs
         run: tests/cephadm.sh image.tar.zst
       - if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cephadm-logs-${{ inputs.track }}
           path: cephadm-logs
@@ -148,11 +166,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: upstream image pins
         run: |
-          echo "UPSTREAM_IMAGE=$(jq -r '.${{ inputs.track }}' "$PINS")" | tee -a "$GITHUB_ENV"
-      - uses: actions/download-artifact@v8
+          echo "UPSTREAM_IMAGE=$(jq -r '.${{ inputs.track }}.ref' "$PINS")" | tee -a "$GITHUB_ENV"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: image-${{ inputs.track }}
       - name: upgrade.sh
@@ -161,7 +179,7 @@ jobs:
           ARTIFACT_DIR: ${{ github.workspace }}/upgrade-logs
         run: tests/upgrade.sh "$UPSTREAM_IMAGE" image.tar.zst
       - if: failure() || cancelled()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: upgrade-logs-${{ inputs.track }}
           path: upgrade-logs
@@ -174,8 +192,8 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: image-${{ inputs.track }}
       - run: |
@@ -193,12 +211,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: stable
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: image-${{ inputs.track }}
       - run: zstd -dc image.tar.zst | docker load
@@ -207,7 +225,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: tests/e2e.sh "${{ needs.build.outputs.tag }}"
       - if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-logs-${{ inputs.track }}
           path: /tmp/acceptance-e2e-logs/

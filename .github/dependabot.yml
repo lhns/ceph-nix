@@ -1,0 +1,9 @@
+# Keeps the SHA pins of the actions current (the trailing # vN comment is updated with them).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/ceph-build
+    schedule:
+      interval: weekly

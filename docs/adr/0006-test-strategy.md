@@ -32,3 +32,9 @@ replaces the bundle the advisory is about with its cacert package. `release.yml`
 
 The Trivy scan sees language packages (Python, Go, Rust) but not the Nix-built native libraries: the image has no OS
 package database. The Trivy image is pinned by digest in `ceph-track.yml`.
+
+The smoke binary is no longer in the image. `ceph-track.yml` builds `ceph-smoke-<track>` after the image (Ceph is already
+restored, so nothing compiles) and uploads it as the `smoke-<track>` artifact; the `cpu` job bind-mounts it read-only
+into the container under test, which `tests/cpu.sh` takes as an optional fourth argument. It is built against the same
+`ceph.lib` and stdenv as the image, so its loader and RUNPATH are in the image's closure. Production images carry only
+what users run.

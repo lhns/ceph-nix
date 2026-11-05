@@ -6,7 +6,6 @@
   ceph, # the scope's `ceph` (outputs out, lib, dev, client, ...), with passthru.pythonEnv
   ganesha ? null, # default: nix/pkgs/nfs-ganesha.nix, the upstream-pinned release with the Ceph/RGW FSALs from this `ceph`
   cephadm, # derivation with bin/cephadm (nix/pkgs/cephadm.nix)
-  smoke ? null, # derivation with libexec/ceph-nix/smoke (nix/pkgs/ceph-smoke.nix), for tests/cpu.sh
   extraPython ? [ ], # python packages the mgr needs beyond ceph.pythonEnv, from the same python
   extraPackages ? [ ],
   # iSCSI gateway runtime and libstoragemgmt (nix/pkgs); ceph-iscsi itself comes in extraPython and extraPackages
@@ -239,9 +238,6 @@ let
         done
         mkdir -p $out/usr/libexec/ceph-nix
         for f in device-light blink-disk; do ln -s ${blinkTools}/libexec/ceph-nix/$f $out/usr/libexec/ceph-nix/$f; done
-        ${lib.optionalString (smoke != null) ''
-          ln -s ${smoke}/libexec/ceph-nix/smoke $out/usr/libexec/ceph-nix/smoke
-        ''}
         mkdir -p $out/etc/ssl/certs $out/etc/dbus-1
         # the RPC library (ganesha's registration with rpcbind) needs netconfig, protocols, services and rpc
         ln -s ${pkgs.libtirpc}/etc/netconfig $out/etc/netconfig

@@ -19,6 +19,7 @@ let
     let
       python = ceph.pythonEnv.python;
       cephadm = pkgs.callPackage ../pkgs/cephadm.nix { inherit ceph; };
+      # not in the image: CI runs it from outside, bind-mounted (tests/cpu.sh)
       smoke = pkgs.callPackage ../pkgs/ceph-smoke.nix { inherit ceph; };
       nfs-ganesha = import ../pkgs/nfs-ganesha.nix {
         inherit pkgs ceph;
@@ -48,7 +49,6 @@ let
         inherit
           ceph
           cephadm
-          smoke
           libstoragemgmt
           rev
           cephRef

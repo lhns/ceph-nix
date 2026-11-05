@@ -25,8 +25,8 @@ jobs:
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: cachix/install-nix-action@v31
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
       - name: flake.lock and nixfmt
         id: commit
         run: |
@@ -45,7 +45,7 @@ jobs:
     if: ${{ !cancelled() && (needs.format.result == 'success' || needs.format.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.format.outputs.sha || github.sha }}
       - name: KVM for NixOS VM tests
@@ -54,7 +54,7 @@ jobs:
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm && sudo udevadm settle
           [ -w /dev/kvm ] || sudo chmod 666 /dev/kvm
           test -w /dev/kvm
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
         with:
           extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
       - run: nix flake check -L

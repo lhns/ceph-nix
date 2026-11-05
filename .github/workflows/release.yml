@@ -58,7 +58,7 @@ jobs:
       ceph_sha: ${{ steps.gate.outputs.ceph_sha }}
       head: ${{ steps.gate.outputs.head }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # a run for an older commit still evaluates main's head
           ref: ${{ github.event_name == 'workflow_run' && 'main' || github.sha }}
@@ -170,12 +170,12 @@ jobs:
             companions: tcmu-runner-umbrella ceph-iscsi-umbrella libstoragemgmt-umbrella nfs-ganesha-umbrella
             track: umbrella
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.SOURCE_SHA }}
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
       - name: the tested image
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: image-${{ matrix.track }}
           run-id: ${{ needs.gate.outputs.ceph_run }}
@@ -260,7 +260,7 @@ jobs:
             echo
             echo "Image built from \`$SOURCE_SHA\` (main head \`${{ needs.gate.outputs.head }}\`), ceph run \`${{ needs.gate.outputs.ceph_run }}\`; publishing enabled: \`$CAN_PUBLISH\` (variable PUBLISH, tested main commit only)."
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: env.CAN_PUBLISH == 'true'
         with:
           name: release-${{ matrix.package }}
@@ -302,13 +302,13 @@ jobs:
             echo "::notice::$RELEASE_HEAD is no longer main's head ($head); not publishing"
             echo current=false >>"$GITHUB_OUTPUT"
           fi
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.head.outputs.current == 'true'
         with:
           name: release-${{ matrix.package }}
       - name: the tested image
         if: steps.head.outputs.current == 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: image-${{ matrix.track }}
           run-id: ${{ needs.gate.outputs.ceph_run }}

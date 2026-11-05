@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Runs an image's binaries under qemu-user with a restricted CPU model (CPUID and instruction set), ADR 0006.
-#   cpu.sh IMAGE CPU pass [upstream]   every program must run
-#   cpu.sh IMAGE CPU fail [upstream]   every program must be refused by glibc for lacking x86-64-v3, and nothing else
-# Needs qemu-x86_64-static. A missing program fails the run; the smoke binary only ships in our image, so it is
-# skipped only when the fourth argument says the image is upstream's.
+#   cpu.sh IMAGE CPU pass [SMOKE_BINARY]   every program must run
+#   cpu.sh IMAGE CPU fail [SMOKE_BINARY]   every program must be refused by glibc for lacking x86-64-v3, and nothing else
+# Needs qemu-x86_64-static. A missing program fails the run. SMOKE_BINARY (tests/smoke.c, nix/pkgs/ceph-smoke.nix) is
+# not part of our image: it is bind-mounted read-only and run the same way, and a missing file fails the run. Its
+# loader and RUNPATH are store paths of the image's closure. Upstream images get no fourth argument.
 set -uo pipefail
-image=$1 cpu=$2 expect=$3 kind=${4:-ours}
-[ "$kind" = ours ] || [ "$kind" = upstream ] || { echo "fourth argument: ours or upstream"; exit 2; }
+image=$1 cpu=$2 expect=$3 smoke=${4:-}
 here=$(cd "$(dirname "$0")" && pwd)
 qemu=$(command -v qemu-x86_64-static)
 
@@ -69,7 +69,6 @@ cmds=(
 	"/usr/bin/ls|--version"
 	"/usr/bin/bash|--version"
 	"/usr/bin/python3|-c|import rados, rbd, cephfs, numpy, sklearn, cryptography, jinja2, lsm, flask, netifaces, rtslib_fb, configshell_fb, ceph_iscsi_config.settings, gwcli"
-	"/usr/libexec/ceph-nix/smoke"
 )
 
 resolve() { # prints the qemu command line words for a program, empty if the image lacks it
@@ -77,34 +76,54 @@ resolve() { # prints the qemu command line words for a program, empty if the ima
 }
 
 rc=0
-for entry in "${cmds[@]}"; do
-	IFS='|' read -r -a words <<<"$entry"
-	prog=${words[0]}
-	args=("${words[@]:1}")
-	# shellcheck disable=SC2207
-	target=($(resolve "$prog"))
-	if [ ${#target[@]} -eq 0 ] || ! docker run --rm --entrypoint /bin/sh "$image" -c "test -e '$prog'" 2>/dev/null; then
-		if [ "$prog" = /usr/libexec/ceph-nix/smoke ] && [ "$kind" = upstream ]; then # only our image carries it
-			printf '### %s  [%s] SKIPPED, not in image\n' "$prog" "$cpu"
-			continue
-		fi
-		printf '### %s  [%s] MISSING\n' "$prog" "$cpu"
-		rc=1
-		continue
-	fi
-	out=$(docker run --rm --entrypoint /qemu -e QEMU_CPU="$cpu" -v "$qemu:/qemu:ro" "$image" -cpu "$cpu" "${target[@]}" "${args[@]}" 2>&1)
+mounts=() # extra docker arguments of the next check
+strict=0  # 1: the program must exit 0 (a usage message is not enough)
+
+# check PROG ARGS... -- TARGET...   runs TARGET (qemu words) under qemu and applies the expectation to PROG
+check() {
+	local prog=$1 args=() target out status
+	shift
+	while [ "$1" != -- ]; do args+=("$1"); shift; done
+	shift
+	target=("$@")
+	out=$(docker run --rm --entrypoint /qemu -e QEMU_CPU="$cpu" -v "$qemu:/qemu:ro" "${mounts[@]}" "$image" -cpu "$cpu" "${target[@]}" "${args[@]}" 2>&1)
 	status=$?
 	printf '### %s %s  [%s, exit %s]\n%s\n' "$prog" "${args[*]}" "$cpu" "$status" "$(head -c 1500 <<<"$out")"
 	case $expect in
 	pass)
 		# a usage message and exit 1 still proves the program ran; a signal or a CPU refusal does not
-		if [ "$status" -ne 0 ] && { [ "$status" -ge 126 ] || [ -z "$out" ] || grep -qE 'Illegal instruction|uncaught target signal|CPU does not support|error while loading shared|No such file or directory|Traceback|ModuleNotFoundError' <<<"$out"; }; then
+		if [ "$status" -ne 0 ] && { [ "$strict" = 1 ] || [ "$status" -ge 126 ] || [ -z "$out" ] || grep -qE 'Illegal instruction|uncaught target signal|CPU does not support|error while loading shared|No such file or directory|Traceback|ModuleNotFoundError' <<<"$out"; }; then
 			echo "FAILED: $prog"
 			rc=1
 		fi
 		;;
 	fail) { [ "$status" -ne 0 ] && grep -q 'CPU does not support x86-64-v3' <<<"$out"; } || { echo "NOT REFUSED: $prog"; rc=1; } ;;
 	esac
+}
+
+for entry in "${cmds[@]}"; do
+	IFS='|' read -r -a words <<<"$entry"
+	prog=${words[0]}
+	# shellcheck disable=SC2207
+	target=($(resolve "$prog"))
+	if [ ${#target[@]} -eq 0 ] || ! docker run --rm --entrypoint /bin/sh "$image" -c "test -e '$prog'" 2>/dev/null; then
+		printf '### %s  [%s] MISSING\n' "$prog" "$cpu"
+		rc=1
+		continue
+	fi
+	check "$prog" "${words[@]:1}" -- "${target[@]}"
 done
+
+if [ -n "$smoke" ]; then
+	if [ ! -f "$smoke" ]; then
+		printf '### %s  [%s] MISSING\n' "$smoke" "$cpu"
+		rc=1
+	else
+		# it must load the three client libraries and exit 0; unlike the --version runs, exit 1 is its own failure
+		mounts=(-v "$(realpath "$smoke"):/ceph-nix-smoke:ro")
+		strict=1
+		check ceph-nix-smoke -- /ceph-nix-smoke
+	fi
+fi
 echo "RESULT image=$image cpu=$cpu expect=$expect -> $([ $rc -eq 0 ] && echo OK || echo FAILED)"
 exit $rc
