@@ -2,7 +2,7 @@
 
 - [0001](0001-build-ceph-from-source-with-nix.md) Build Ceph from source with Nix
 - [0002](0002-parity-with-the-upstream-image.md) Parity with the upstream Ceph image
-- [0003](0003-releases.md) Release each built image once, only when it changed
+- [0003](0003-releases.md) Release each built image once, only when it changed (identity superseded by 0013)
 - [0004](0004-ceph-on-nixos-via-cephadm.md) Run Ceph on NixOS via cephadm with our image
 - [0005](0005-opencas-from-the-fork.md) OpenCAS from the fork as a flake input (superseded by 0009)
 - [0006](0006-test-strategy.md) Test strategy
@@ -12,3 +12,4 @@
 - [0010](0010-hosted-runners-and-actions-cache.md) GitHub-hosted runners and the Actions cache for Umbrella (superseded by 0011)
 - [0011](0011-both-tracks-built-with-shared-overrides.md) Both Ceph tracks are our builds, with shared overrides
 - [0012](0012-opencas-only-for-tests.md) OpenCAS only as a test input
+- [0013](0013-release-identity-from-store-paths.md) Release identity from store paths, not layer bytes

@@ -1,6 +1,6 @@
 # 3. Release each built image once, only when it changed
 
-Status: Accepted (2026-10)
+Status: Accepted (2026-10); how "differs" is decided is superseded by [0013](0013-release-identity-from-store-paths.md)
 
 ## Context
 
