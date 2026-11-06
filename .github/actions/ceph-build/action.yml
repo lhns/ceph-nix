@@ -6,6 +6,11 @@ inputs:
   track:
     description: tentacle or umbrella
     required: true
+  save:
+    description: >-
+      Save a cache entry after building. Only the ceph workflow does: Ceph is not bit-reproducible, so a second build
+      saved by another workflow would replace the bytes that were released (ADR 0013).
+    default: 'true'
 runs:
   using: composite
   steps:
@@ -71,7 +76,7 @@ runs:
         echo "### Ceph $TRACK $verb in $((SECONDS - start))s (restored: ${MATCHED:-nothing}; key to save: $KEY)" | tee -a "$GITHUB_STEP_SUMMARY"
         echo "built=$built" >>"$GITHUB_OUTPUT"
     - name: export what cache.nixos.org lacks
-      if: steps.build.outputs.built == 'true'
+      if: steps.build.outputs.built == 'true' && inputs.save == 'true'
       shell: bash # with pipefail
       env:
         DIR: ${{ steps.key.outputs.dir }}
@@ -91,7 +96,7 @@ runs:
         xargs -a "$DIR/keep.txt" nix-store --export | zstd -T0 -3 -o "$DIR/keep.nar.zst"
         du -sh "$DIR" | tee -a "$GITHUB_STEP_SUMMARY"
     - name: save the Nix cache of Ceph
-      if: steps.build.outputs.built == 'true'
+      if: steps.build.outputs.built == 'true' && inputs.save == 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.key.outputs.dir }}

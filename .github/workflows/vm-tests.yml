@@ -60,6 +60,7 @@ jobs:
       - uses: ./.github/actions/ceph-build
         with:
           track: ${{ matrix.track }}
+          save: false # the ceph workflow's build is the one released and cached
       - run: nix build -L --no-link .#${{ matrix.test }}
       - if: always()
         run: df -h /

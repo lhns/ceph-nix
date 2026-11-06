@@ -191,11 +191,11 @@ jobs:
           PACKAGE: ${{ matrix.package }}
           COMPANIONS: ${{ matrix.companions }}
         run: |
-          # Image identity: the config with the revision label removed, hashed. The config holds the layer
-          # diff_ids (uncompressed content), env, cmd and labels, so it does not depend on how a registry
-          # compresses layers; the manifest digest would. The revision label is the commit, which differs on
-          # every commit even when nothing in the image does, so it is excluded (ADR 0003).
-          ident() { jq -S -c 'del(.config.Labels["org.opencontainers.image.revision"]) | del(.container_config)' | sha256sum | cut -d' ' -f1; }
+          # Image identity (ADR 0013): the config hashed without the revision label (the commit, new on every
+          # commit) and without the layer diff_ids. Ceph does not build bit for bit reproducibly, so a rebuild of the
+          # same derivation changes the diff_ids; the store paths in each layer's history comment, env, cmd and
+          # labels still say what the image is. Nix store paths are input-addressed: same paths, same build inputs.
+          ident() { jq -S -c 'del(.config.Labels["org.opencontainers.image.revision"]) | del(.container_config) | del(.rootfs.diff_ids)' | sha256sum | cut -d' ' -f1; }
 
           ver=$(jq -r '.config.Labels["org.opencontainers.image.version"]' config.json)
           [[ $ver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::cannot read the Ceph version from the image ('$ver')"; exit 1; }
@@ -215,7 +215,7 @@ jobs:
             newest=none; changed=true; n=1
           else
             newest="v$ver-$last"
-            ident_old=$(skopeo inspect --config "docker://$REGISTRY_IMAGE:$newest" | ident)
+            ident_old=$(skopeo inspect --raw --config "docker://$REGISTRY_IMAGE:$newest" | ident)
             if [ "$ident_old" = "$ident_new" ]; then changed=false; else changed=true; fi
             n=$((last + 1))
           fi
@@ -354,7 +354,7 @@ jobs:
             echo '```'
             echo
             echo "- config digest (image ID): \`$config_digest\`"
-            echo "- image identity (config without the revision label; decides a new release): \`$identity\`"
+            echo "- image identity (config without the revision label and layer digests; decides a new release): \`$identity\`"
             echo "- nixpkgs: \`$nixpkgs\`"
             echo "- previous release of this Ceph version: $newest"
             echo
