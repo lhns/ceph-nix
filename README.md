@@ -3,10 +3,9 @@
 Ceph built from source with Nix, for hosts without x86-64-v3 (AVX2):
 
 - an OCI image that tracks `quay.io/ceph/ceph` (what is and is not verified: [below](#verified)), for cephadm and Rook;
-- a NixOS module for Ceph hosts managed by cephadm with that image;
-- a NixOS module for the build host and its binary cache.
+- a NixOS module for Ceph hosts managed by cephadm with that image.
 
-Work in progress. Decisions are in [`docs/adr/`](docs/adr). The ceph-csi counterpart is
+Released images and their digests: [Releases](https://github.com/lhns/ceph-nix/releases). Decisions are in [`docs/adr/`](docs/adr). The ceph-csi counterpart is
 [lhns/ceph-csi-x86-64-v2](https://github.com/lhns/ceph-csi-x86-64-v2). Drafted, not yet filed upstream bug reports:
 [`docs/upstream-reports.md`](docs/upstream-reports.md).
 
@@ -20,9 +19,9 @@ Work in progress. Decisions are in [`docs/adr/`](docs/adr). The ceph-csi counter
 - NixOS VM tests on a CPU without AVX2 (`.#test-ceph-host`): RBD, CephFS, erasure-coded pools, RGW with S3, NFS,
   iSCSI, the dashboard API, the rbd-mirror and cephfs-mirror daemons, the exporter, and a reboot.
 - `tests/cephadm.sh`: a cephadm cluster on the image, the functional checks on real mounts.
-- Upgrades: upstream v20.2.5 to ours (`upgrade.sh`), ours Tentacle to Umbrella (`migrate`), and the same between
+- Upgrades: upstream v20.2.5 to ours and upstream v21.2.0 to ours (`upgrade.sh`, one leg per track), ours Tentacle to Umbrella (`migrate`), and the same between
   upstream's images (`migrate-control`) as the reference.
-- CPU negative control: upstream's image is refused on an Ivy Bridge CPU model and runs on Haswell; ours runs on both.
+- CPU negative control: upstream's image is refused on an Ivy Bridge CPU model and runs on Haswell; ours runs on Ivy Bridge and on Nehalem (x86-64-v2 without AVX).
 - ceph-csi's acceptance e2e on Rook with the image; Trivy: CRITICAL findings with a fix fail the build
   ([ADR 0006](docs/adr/0006-test-strategy.md)).
 
@@ -73,6 +72,11 @@ ssh-copy-id -f -i /etc/ceph/ceph.pub root@<other-host>  # or add ceph.pub to its
 ceph orch host add <other-host> <ip>
 ceph orch daemon add osd <host>:/dev/<disk>  # or: ceph orch apply osd --all-available-devices
 ```
+
+The module opens the ports of the core daemons only (mon, OSD/mgr/MDS range, dashboard, mgr discovery and Prometheus,
+exporter). Services you run on top need their own rules: NFS (Ganesha) 2049/tcp, iSCSI gateway 3260/tcp for targets and
+5001/tcp for the `rbd-target-api`, RGW the port of its service spec (8080 in the VM test). The VM test opens them
+itself.
 
 Not supported: `system.etc.overlay.enable`. The VM test is `nix build .#test-ceph-host` (about 42 minutes for Tentacle, 52 for Umbrella with `-umbrella`): cephadm on NixOS with our image on a CPU without
 AVX2, with `.#test-ceph-cpu` as negative control (upstream's image cannot start there).
@@ -126,13 +130,18 @@ migration from one to the other.
 
 A cluster on upstream's `quay.io/ceph/ceph` moves to this image in two `ceph orch upgrade` steps, each tested in CI
 (`tests/upgrade.sh`, `migrate`, `migrate-control`). Set `services.ceph-host.image` and `services.ceph-host.cephadmPackage`
-(the target track's `cephadm-tentacle.host` or `cephadm-umbrella.host`) to the target release first, and pin images by digest:
+(the target track's `cephadm-tentacle.host` or `cephadm-umbrella.host`) to the target release first, and pin images by digest.
+The digests below are the newest releases when this was written (`v20.2.5-2`, `v21.2.0-2`); take the newest from
+[Releases](https://github.com/lhns/ceph-nix/releases):
 
-1. Upstream v20.2.5 to ours v20.2.5: `ceph orch upgrade start --image ghcr.io/lhns/ceph-nix@sha256:<v20.2.5 digest>`.
+1. Upstream v20.2.5 to ours v20.2.5: `ceph orch upgrade start --image ghcr.io/lhns/ceph-nix@sha256:d13aa69da1a5213ee06b67ba921b1b4b112d15d58a0285285624f0294580a979`.
    Same version, so only the container changes; wait for `ceph orch upgrade status` to finish and for HEALTH_OK.
    On an older 20.2.x, upgrade to upstream's v20.2.5 first: only the same-version switch is tested.
-2. Ours v20.2.5 to ours v21.2.0: `ceph orch upgrade start --image ghcr.io/lhns/ceph-nix@sha256:<v21.2.0 digest>`,
+2. Ours v20.2.5 to ours v21.2.0: `ceph orch upgrade start --image ghcr.io/lhns/ceph-nix@sha256:3bd895457476e9962cc2e3fef45d7900d6661fa129d2faea3b750e6fb6cf6a82`,
    then the NFS grace step below for each NFS cluster. Upstream v20.2.5 to upstream v21.2.0 behaves the same way.
+
+Step 1 can be undone with another `ceph orch upgrade` to upstream's v20.2.5 (CI runs it after the checks, not
+gating). Step 2 cannot: Ceph refuses a downgrade.
 
 Afterwards `ceph versions` shows one version (the old rgw daemon can stay listed for a few minutes) and the
 `AUTH_INSECURE_KEYS_*` warnings that cephadm's Tentacle upgrade leaves may remain until the old-style keys are gone.
@@ -180,7 +189,9 @@ finishes last passes its gate (green ceph and vm-tests runs that cover main's he
 commit) and releases the `image-<track>`
 artifacts that `ceph.yml` tested, without rebuilding, if the image differs from the newest `v<ver>-*`
 ([ADR 0003](docs/adr/0003-releases.md)). The artifacts are kept 7 days: a later release needs `ceph.yml` re-run first.
-It compares the image config (layer content, env, cmd, labels; without the commit label), not the registry digest.
+It compares the image identity, not the registry digest: the config without the commit label and the layer digests, so
+the Nix store paths each layer's history names decide; Ceph builds are not bit-reproducible
+([ADR 0013](docs/adr/0013-release-identity-from-store-paths.md)).
 Publishing is off until the repository variable `PUBLISH` is `true` (Settings, Secrets and variables, Actions,
 Variables). Without it the workflow is a dry run: it prints "would publish v20.2.5-1, config digest ..., newest
 existing: none" to the run's step summary, and pushes nothing. [`bump.yml`](.github/workflows/bump.yml) opens a

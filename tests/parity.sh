@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # File-tree parity with the upstream image, ADR 0002 dimension (a).
 #   parity.sh UPSTREAM_IMAGE OUR_IMAGE EXPECTED_MAJOR_MINOR      e.g. quay.io/ceph/ceph:v20.2.5 ceph-nix:... 20.2
-# Every entry of upstream's /usr/bin, /usr/sbin, /usr/libexec/ceph, /usr/lib64/{ceph,rados-classes,ganesha,tcmu-runner},
-# the Ceph libraries /usr/lib64/lib{rados,rbd,cephfs,rgw,radosstriper,cephsqlite}.so* and /usr/share/ceph/mgr must exist
-# (resolve) in ours, unless tests/parity-allow.txt allows it (one shell glob per line, then "# reason, ADR 0002").
+# Every entry of upstream's /usr/bin, /usr/sbin, /usr/lib64/{ganesha,tcmu-runner}, every file below
+# /usr/libexec/ceph, /usr/lib64/{ceph,rados-classes} (erasure-code, compressor, crypto and extblkdev plugins) and
+# /usr/share/ceph (the mgr modules and dashboard frontend included), and the Ceph libraries
+# /usr/lib64/lib{rados,rbd,cephfs,rgw,radosstriper,cephsqlite}.so* must exist (resolve) in ours, unless
+# tests/parity-allow.txt allows it (one shell glob per line, then "# reason, ADR 0002").
 # PARITY_USERLAND=el10 for the Umbrella image (Rocky 10; default el9, CentOS Stream 9), see tests/parity-allow.txt.
 # Also the Python the mgr runs on (tests/pydists.py): every distribution installed in upstream's python3, and every
 # top-level module no distribution owns, is present in ours ("pydist:<name>" / "pymod:<name>" entries, normalized
 # names), same allowlist. And the dashboard's optional gRPC/NVMe-oF client imports, which fails silently otherwise.
 # Also the linkage: the DT_NEEDED sonames (versions dropped) of the daemons, ceph-fuse, rbd-nbd and the Ceph libraries
 # (tests/elfneeded.py). Sonames upstream links directly and ours does not reach at all are "so:<binary>:<soname>"
-# entries, same allowlist; the rest is printed as info.
+# entries, same allowlist; the rest is printed as info. A binary or library the script cannot find or read is an
+# "elf:absent:<name>" / "elf:error:<name>:<why>" entry, same allowlist.
 # Also: `ceph -v` is EXPECTED_MAJOR_MINOR, and every mgr module that imports in upstream's image imports in ours.
 set -uo pipefail
 export LC_ALL=C # sort and comm must agree
@@ -31,11 +34,12 @@ for img in "$up" "$ours"; do
 done
 
 # --- file tree
-# the mgr tree is compared file by file (module code, dashboard frontend), the rest by directory entry
-run "$up" 'for d in /usr/bin /usr/sbin /usr/libexec/ceph /usr/lib64/ceph /usr/lib64/rados-classes /usr/lib64/ganesha /usr/lib64/tcmu-runner; do
+# the Ceph directories are compared file by file (plugins, module code, dashboard frontend), the rest by directory entry
+run "$up" 'for d in /usr/bin /usr/sbin /usr/lib64/ganesha /usr/lib64/tcmu-runner; do
 	ls -A "$d" 2>/dev/null | sed "s|^|$d/|"; done
 	ls -d /usr/lib64/lib{rados,rbd,cephfs,rgw,radosstriper,cephsqlite}.so* 2>/dev/null
-	find /usr/share/ceph/mgr \( -type f -o -type l \) ! -path "*/__pycache__/*" ! -name "*.pyc" 2>/dev/null; true' </dev/null \
+	find /usr/libexec/ceph /usr/lib64/ceph /usr/lib64/rados-classes /usr/share/ceph \( -type f -o -type l \) \
+		! -path "*/__pycache__/*" ! -name "*.pyc" 2>/dev/null; true' </dev/null \
 	| sort -u >"$work/upstream.txt" || fail "cannot list the files of upstream's image"
 echo "upstream entries: $(wc -l <"$work/upstream.txt")"
 # an empty or truncated list would make everything below pass (CI shows about 3150 for Tentacle, 3270 for Umbrella)
@@ -65,8 +69,11 @@ elfrun "$ours" | sort -u >"$work/elf-ours.txt" || fail "cannot read the linkage 
 for k in up ours; do
 	grep '^so:' "$work/elf-$k.txt" >"$work/so-$k.txt"
 	sed -n 's/^closure:/so:/p' "$work/elf-$k.txt" | sort -u >"$work/closure-$k.txt"
-	grep -E '^(absent|error|probe):' "$work/elf-$k.txt" | sed "s/^/$k: /"
+	grep -E '^probe:' "$work/elf-$k.txt" | sed "s/^/$k: /"
 done
+# a binary that is absent or unreadable would make its linkage diff vacuous: a gap, like a missing file
+grep -hE '^(absent|error):' "$work/elf-up.txt" "$work/elf-ours.txt" | sed 's/^/elf:/' >>"$work/missing.txt"
+sort -u -o "$work/missing.txt" "$work/missing.txt"
 echo "linkage: $(wc -l <"$work/so-up.txt") upstream direct sonames, $(wc -l <"$work/so-ours.txt") ours"
 # upstream links it directly: a gap, unless ours reaches it through a shared library (upstream bundles rocksdb and boost
 # statically, ours uses the shared ones, so zlib, lz4 and snappy come in through them)
@@ -166,6 +173,7 @@ echo "== mgr module imports (upstream | ours)"
 join -j2 -a1 -a2 -e '?' -o 0,1.1,2.1 <(sort -k2 "$work/mgr-up.txt") <(sort -k2 "$work/mgr-ours.txt") | sort -u
 grep '^FAIL' "$work/mgr-up.txt" | sed 's/^/upstream: /'
 grep '^FAIL' "$work/mgr-ours.txt" | sed 's/^/ours:     /'
+[ -s "$work/mgr-up.txt" ] || fail "no mgr module imported in upstream's image"
 [ -s "$work/mgr-ours.txt" ] || fail "no mgr module imported in our image"
 while read -r _ name _; do
 	grep -q "^OK $name\$" "$work/mgr-up.txt" && fail "mgr module $name imports in upstream but not in ours"

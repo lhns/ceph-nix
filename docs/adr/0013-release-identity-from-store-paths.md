@@ -29,3 +29,10 @@ diff_ids. The first release after `v20.2.5-1` / `v21.2.0-1` published `-2` of bo
   one that was released first.
 - When both workflows build cold at once, vm-tests tests its own build of the same derivation, not the released bytes.
 - `v20.2.5-2` and `v21.2.0-2` stay: tags are never moved or removed.
+
+## Amendment (2026-11): fakeRootCommands
+
+`fakeRootCommands` (directories, modes, owners) run in the stream script, so a change there alters no store path and
+no config: it would not release. The image now carries the sha256 of that string in the label
+`ceph-nix.fakeroot-sha256`, which is part of the identity. The image sets no `extraCommands`. Adding the label
+changed the identity of the images once; the first release after it publishes `-3` of both tracks.

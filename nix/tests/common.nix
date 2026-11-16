@@ -17,8 +17,9 @@ in
 {
   inherit imageInfo;
 
-  # A v2-only CPU: qemu's host model minus what x86-64-v3 needs (glibc checks AVX2, BMI1/2, FMA, F16C ...).
-  maskedCpu = "host,-avx2,-bmi1,-bmi2,-fma,-f16c,-avx512f";
+  # A strictly v2 CPU: qemu's host model minus everything x86-64-v3 adds (AVX/AVX2/AVX512, BMI1/2, FMA, F16C, MOVBE,
+  # LZCNT, which qemu calls abm). glibc checks these for its x86-64-v3 code paths.
+  maskedCpu = "host,-avx,-avx2,-bmi1,-bmi2,-fma,-f16c,-avx512f,-movbe,-abm";
 
   # A streamed image as a file for `podman load -i`. The stream script tars tens of thousands of small files from the
   # VM's 9p store, which took over an hour for the Umbrella image; reading one big file is fast. It costs the image's

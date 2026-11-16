@@ -249,15 +249,9 @@ let
         sed -e '/etc.dbus-1.system.conf/d' -e 's|<user>messagebus</user>|<user>dbus</user>|' ${pkgs.dbus}/share/dbus-1/system.conf > $out/etc/dbus-1/system.conf
         sed -e '/etc.dbus-1.session.conf/d' ${pkgs.dbus}/share/dbus-1/session.conf > $out/etc/dbus-1/session.conf
   '';
-in
-pkgs.dockerTools.streamLayeredImage {
-  inherit name tag;
-  maxLayers = 120;
-  contents = [
-    files
-    fhs
-  ];
 
+  # Runs in the stream script, so a change here alters no store path and no config. The hash goes into a label
+  # so the release identity (ADR 0013) sees it. The image sets no extraCommands.
   fakeRootCommands = ''
     mkdir -p tmp root run/ceph run/ganesha run/dbus var/lib/ceph var/lib/nfs/ganesha var/log/ceph etc/ceph
     ${lib.optionalString (tcmuRunner != null)
@@ -271,6 +265,16 @@ pkgs.dockerTools.streamLayeredImage {
     chmod 750 var/lib/ceph
     chmod 770 var/log/ceph run/ceph
   '';
+in
+pkgs.dockerTools.streamLayeredImage {
+  inherit name tag;
+  maxLayers = 120;
+  contents = [
+    files
+    fhs
+  ];
+
+  inherit fakeRootCommands;
 
   config = {
     Cmd = [ "/bin/bash" ];
@@ -291,6 +295,7 @@ pkgs.dockerTools.streamLayeredImage {
       "org.opencontainers.image.licenses" = "LGPL-2.1-or-later AND GPL-2.0-only";
       "ceph" = "True";
       "CEPH_REF" = cephRef;
+      "ceph-nix.fakeroot-sha256" = builtins.hashString "sha256" fakeRootCommands;
     };
   };
 }

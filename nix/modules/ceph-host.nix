@@ -244,10 +244,16 @@ in
           mkdir -p ${upper} ${unitsState}/work /run/ceph-nix
           lower=$(mktemp -d /run/ceph-nix/units-lower.XXXXXX)
           cp -a "$(readlink -f /etc/systemd/system)/." "$lower/"
+          link=$(readlink /etc/systemd/system)
           rm /etc/systemd/system
           mkdir /etc/systemd/system
-          mount -t overlay overlay \
-            -o lowerdir="$lower",upperdir=${upper},workdir=${unitsState}/work /etc/systemd/system
+          if ! mount -t overlay overlay \
+            -o lowerdir="$lower",upperdir=${upper},workdir=${unitsState}/work /etc/systemd/system; then
+            # a failed mount must not leave an empty directory: systemd would see no units at all
+            rmdir /etc/systemd/system
+            ln -s "$link" /etc/systemd/system
+            exit 1
+          fi
           for d in /run/ceph-nix/units-lower.*; do
             [ "$d" = "$lower" ] || rm -rf "$d"
           done
