@@ -51,3 +51,8 @@ save that follows, so the next run restores the complete one. A hit is `cache-ma
 
 Upstream's spec moved Tentacle to fuse3 in 20.2.5, so both tracks now build with `fuse = fuse3`; "Tentacle stays on
 fuse 2" applied to 20.2.4.
+
+## Amendment (2026-11): release.yml
+
+`release.yml` no longer builds Ceph: it releases the image artifact of the tested `ceph.yml` run (ADR 0013). Only
+`ceph.yml` (through `ceph-track.yml`) and `vm-tests.yml` use the `ceph-build` action.

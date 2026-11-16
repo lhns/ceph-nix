@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: write # dispatch ceph and vm-tests after the bot commit
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
     steps:
@@ -29,6 +30,8 @@ jobs:
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
       - name: flake.lock and nixfmt
         id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           nix flake lock
           git ls-files -z '*.nix' | xargs -0 nix fmt --
@@ -36,6 +39,12 @@ jobs:
           if ! git diff --cached --quiet; then
             git -c user.name=github-actions -c user.email=noreply@github.com commit -m "Update flake.lock, nixfmt"
             git push
+            # A GITHUB_TOKEN push triggers no workflows, so main's head would have no ceph and vm-tests run and
+            # release.yml's gate would never be ready. workflow_dispatch is the exception GITHUB_TOKEN may use.
+            if [ "$GITHUB_REF" = refs/heads/main ]; then
+              gh workflow run ceph.yml --ref main
+              gh workflow run vm-tests.yml --ref main
+            fi
           fi
           echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
 

@@ -68,7 +68,9 @@ snapshot() { # snapshot DIR: the state that must survive
 	orch_ps >"$1/orch-ps.json"
 	tbx ceph config dump -f json >"$1/config.json"
 	tbx ceph mgr module ls -f json >"$1/modules.json"
-	sudo find "/var/lib/ceph/$fsid" -printf '%U:%G %P\n' 2>/dev/null | sort -k2 >"$1/owners.txt" || true
+	# -ignore_readdir_race: daemons create and remove files while this runs
+	sudo find "/var/lib/ceph/$fsid" -ignore_readdir_race -printf '%U:%G %P\n' | sort -k2 >"$1/owners.txt"
+	[ -s "$1/owners.txt" ] || { echo "no files under /var/lib/ceph/$fsid to snapshot"; return 1; }
 	sudo ls "/var/lib/ceph/$fsid" | grep '^cephadm\.' >"$1/cephadm-binaries.txt" || true
 }
 # upgrade_wait LABEL: poll `ceph orch upgrade status` until it finishes; 1 on error state or timeout

@@ -1,6 +1,6 @@
 # Upstream bug reports (drafts, not filed)
 
-Six problems found while testing this image. They are not packaging bugs: upstream's own images behave the same,
+Seven problems found while testing this image. They are not packaging bugs: upstream's own images behave the same,
 which the control legs in CI show. Each draft says what the repo's code, comments and tests establish; where that is
 thin, the draft says so instead of guessing. Check each against current upstream before filing.
 
@@ -99,3 +99,17 @@ thin, the draft says so instead of guessing. Check each against current upstream
   hazard.
 - Thin facts: why the upstream 20.2.3 to 20.2.4 control runs hung less often (0/4) than upstream to ours is a race of PG
   state, not established in detail. Upstream's image has the same mechanism.
+
+## 7. cephadm: `rotate_osd_lv_keyring` stops the OSD container, then `systemctl start` can be a no-op
+
+- Component: cephadm, `OSD.rotate_osd_lv_keyring()` in `cephadmlib/daemons/ceph.py`.
+- Symptom: `podman stop` of the OSD container, `ceph-bluestore-tool set-label-key`, then `systemctl reset-failed` and
+  `systemctl start` with the return codes ignored. If the start runs while systemd still sees the unit as active (the
+  container exit has not been processed yet), it does nothing, and the unit then deactivates cleanly: the OSD stays
+  down until `ceph orch daemon start osd.N`.
+- Seen in the Tentacle host VM test (vm-tests run 42192916230, attempt 1): the first monmap change reconfigured every
+  OSD, and the keyring comparison (raw strings, differing only in caps) rotated it. That trigger is
+  tracker.ceph.com/issues/80399, fixed by ceph/ceph#71640 (main) and #72033 (Tentacle); ours carries the backport.
+- Still open on main: a real key rotation (`ceph orch daemon rotate-key`) takes the same path and has the same race.
+  Suggested: `systemctl restart` (or wait for the unit to become inactive before `start`), and check the return code.
+- Thin facts: the ordering is inferred from the unit state after the failure, not from a trace of the race itself.

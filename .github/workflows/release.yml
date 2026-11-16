@@ -28,7 +28,8 @@ env:
 jobs:
   # One gate for ceph.yml and vm-tests. The release candidate is main's head H, whatever run triggered this workflow.
   # H needs a successful run of each of
-  # (a) ceph.yml (a push run on main): its image artifacts are what gets released, and
+  # (a) ceph.yml (a push or dispatch run on main; nix.yml dispatches one after its bot commit):
+  #     its image artifacts are what gets released, and
   # (b) vm-tests: the VM tests back the "runs without AVX2" claim.
   # A run that is missing or still going is "not ready" (ok=false, a notice): the workflow that finishes last
   # releases. A finished run that did not succeed is an error.
@@ -41,11 +42,11 @@ jobs:
   # A dispatch from a branch is a dry run: it needs a ceph run of exactly that commit (for the artifacts) but neither
   # main's head nor vm-tests.
   gate:
-    # workflow_run fires for every ceph and vm-tests run: only a successful push to main is a release candidate
+    # workflow_run fires for every ceph and vm-tests run: only a successful push or dispatch on main is a release candidate
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event.workflow_run.conclusion == 'success'
-      && github.event.workflow_run.event == 'push'
+      && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')
       && github.event.workflow_run.head_branch == 'main'
       && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-24.04
@@ -72,11 +73,12 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" != refs/heads/main ]; then dry=true; fi
           not_ready() { echo "::notice::not ready: $*"; echo ok=false >>"$GITHUB_OUTPUT"; exit 0; }
 
-          # covering WORKFLOW RUN-QUERY PATHSPEC...: sets cov="id head status conclusion" (empty if none), see the
+          # Only push and dispatch runs count (a fork's PR from its own "main" also matches branch=main).
+          # covering WORKFLOW PATHSPEC...: sets cov="id head status conclusion" (empty if none), see the
           # comment above the job
           covering() {
-            local wf=$1 query=$2 need id h st co
-            shift 2
+            local wf=$1 need id h st co
+            shift
             need=$(git log -1 --format=%H "$sha" -- . "$@")
             [ -n "$need" ] || need=$sha
             echo "$wf: last commit that triggers it: $need"
@@ -85,8 +87,8 @@ jobs:
               if git merge-base --is-ancestor "$need" "$h" 2>/dev/null && git merge-base --is-ancestor "$h" "$sha" 2>/dev/null; then
                 cov="$id $h $st $co"; break
               fi
-            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?branch=main&per_page=100$query" \
-              --jq '.workflow_runs[] | [.id, .head_sha, .status, (.conclusion // "")] | @tsv')
+            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?branch=main&per_page=100" \
+              --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch") | [.id, .head_sha, .status, (.conclusion // "")] | @tsv')
           }
 
           # (a) ceph.yml
@@ -99,7 +101,7 @@ jobs:
             git fetch -q origin main
             sha=$(git rev-parse origin/main)
             # KEEP in step with ceph.yml's paths-ignore
-            covering ceph.yml '&event=push' ':(exclude)docs' ':(exclude)*.md' ':(exclude)LICENSE' \
+            covering ceph.yml ':(exclude)docs' ':(exclude)*.md' ':(exclude)LICENSE' \
               ':(exclude)nix/modules' ':(exclude)nix/tests' ':(exclude).github/dependabot.yml' \
               ':(exclude).github/workflows/nix.yml' ':(exclude).github/workflows/release.yml' \
               ':(exclude).github/workflows/bump.yml' ':(exclude).github/workflows/vm-tests.yml'
@@ -127,7 +129,7 @@ jobs:
             echo "dispatch from $GITHUB_REF: main's head and vm-tests not required for a dry run"
           else
             # KEEP in step with vm-tests.yml's paths-ignore
-            covering vm-tests.yml '' ':(exclude)docs' ':(exclude)*.md' ':(exclude)LICENSE' \
+            covering vm-tests.yml ':(exclude)docs' ':(exclude)*.md' ':(exclude)LICENSE' \
               ':(exclude)tests/*.sh' ':(exclude)tests/*.txt' ':(exclude)tests/ceph-csi.json' \
               ':(exclude).github/dependabot.yml' ':(exclude).github/workflows/ceph.yml' \
               ':(exclude).github/workflows/ceph-track.yml' ':(exclude).github/workflows/nix.yml'

@@ -65,3 +65,9 @@ does not import `nixos-cloudinit`; consumers compose it with their base.
 `cephadmPackage` has no module default any more (the Decision text above says it defaults to the image's build). A
 default can only be built from the module's own `pkgs`, i.e. nixpkgs' Ceph, which is neither of our tracks. Set it to
 `packages.x86_64-linux.cephadm-tentacle.host` or `cephadm-umbrella.host` of the same release as `image`.
+
+## Amendment (2026-11): cephadm backport
+
+`nix/pkgs/patch-cephadm.py` also patches Tentacle's cephadm (not Umbrella's) with ceph/ceph#72033 (commit
+0462865065, tracker 80399): a keyring that differs only in caps no longer rotates the OSD's bluestore keyring, whose
+stop/start could leave an OSD stopped after a monmap change. Drop it when Tentacle's cephadm has it.

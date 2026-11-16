@@ -272,6 +272,7 @@ pkgs.testers.runNixOSTest {
               run(node1, f"cephadm shell -- ceph {c}", 600)
           for m in hosts:
               run(m, "systemctl list-units 'ceph*' --all --no-pager")
+              run(m, "tail -n 200 /var/log/ceph/cephadm.log")
               run(m, "journalctl -u 'ceph*' --no-pager -n 150")
 
 
