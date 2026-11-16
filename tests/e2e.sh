@@ -67,6 +67,10 @@ for i in 1 2 3; do
 done
 sudo sysctl fs.protected_regular=0
 MEMORY=6144 scripts/minikube.sh up
+# Runner images from 20261111 have a zram swap disk and no spare disk; upstream's helper excludes only loop, boot and
+# root devices, so it wipes zram0 for the OSD instead of falling back to its file-backed iSCSI disk.
+grep -q 'local exclude="loop"$' scripts/github-action-helper.sh
+sed -i 's/local exclude="loop"$/local exclude="loop|zram"/' scripts/github-action-helper.sh
 scripts/github-action-helper.sh prepare_disk
 scripts/minikube.sh cephcsi
 scripts/minikube.sh k8s-sidecar
