@@ -41,6 +41,11 @@ Not verified:
   down until that OSD returns; the OSD container hangs in D state. With `min_size 2` pools (the production default
   for size 3) we did not reproduce it (0/3, against 2/3 with size 2 and `min_size 1`); upstream's image has the same
   mechanism. CI keeps such a mount across the upgrade with size 3/`min_size 2` pools (`tests/upgrade.sh`).
+- Known hazard (upstream cephadm 20.2.5, [tracker 80399](https://tracker.ceph.com/issues/80399)): the first monmap
+  change after OSDs exist restarts every OSD without an ok-to-stop check and can leave one stopped (`ceph orch daemon
+  start osd.N`). Our Tentacle cephadm carries the backport of ceph/ceph#72033. The remaining stop/start race on a real
+  key rotation (`ceph orch daemon rotate-key`) is upstream's and still on main. During migration step 1 the cluster
+  still runs upstream's cephadm until the switch: check `ceph orch ps` for stopped OSDs after the upgrade.
 - The Trivy scan sees language packages (Python, Go, Rust) but not the Nix-built native libraries: there is no OS
   package database in the image.
 
