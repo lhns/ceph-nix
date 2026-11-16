@@ -87,8 +87,8 @@ jobs:
               if git merge-base --is-ancestor "$need" "$h" 2>/dev/null && git merge-base --is-ancestor "$h" "$sha" 2>/dev/null; then
                 cov="$id $h $st $co"; break
               fi
-            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?branch=main&per_page=100$query" \
-              --jq '.workflow_runs[] | [.id, .head_sha, .status, (.conclusion // "")] | @tsv')
+            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?branch=main&per_page=100" \
+              --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch") | [.id, .head_sha, .status, (.conclusion // "")] | @tsv')
           }
 
           # (a) ceph.yml

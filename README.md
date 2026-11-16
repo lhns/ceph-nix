@@ -5,7 +5,8 @@ Ceph built from source with Nix, for hosts without x86-64-v3 (AVX2):
 - an OCI image that tracks `quay.io/ceph/ceph` (what is and is not verified: [below](#verified)), for cephadm and Rook;
 - a NixOS module for Ceph hosts managed by cephadm with that image.
 
-Released images and their digests: [Releases](https://github.com/lhns/ceph-nix/releases). Decisions are in [`docs/adr/`](docs/adr). The ceph-csi counterpart is
+Released images and their digests: [Releases](https://github.com/lhns/ceph-nix/releases). Decisions are in
+[`docs/adr/`](docs/adr). The ceph-csi counterpart is
 [lhns/ceph-csi-x86-64-v2](https://github.com/lhns/ceph-csi-x86-64-v2). Drafted, not yet filed upstream bug reports:
 [`docs/upstream-reports.md`](docs/upstream-reports.md).
 
@@ -19,9 +20,10 @@ Released images and their digests: [Releases](https://github.com/lhns/ceph-nix/r
 - NixOS VM tests on a CPU without AVX2 (`.#test-ceph-host`): RBD, CephFS, erasure-coded pools, RGW with S3, NFS,
   iSCSI, the dashboard API, the rbd-mirror and cephfs-mirror daemons, the exporter, and a reboot.
 - `tests/cephadm.sh`: a cephadm cluster on the image, the functional checks on real mounts.
-- Upgrades: upstream v20.2.5 to ours and upstream v21.2.0 to ours (`upgrade.sh`, one leg per track), ours Tentacle to Umbrella (`migrate`), and the same between
-  upstream's images (`migrate-control`) as the reference.
-- CPU negative control: upstream's image is refused on an Ivy Bridge CPU model and runs on Haswell; ours runs on Ivy Bridge and on Nehalem (x86-64-v2 without AVX).
+- Upgrades: upstream v20.2.5 to ours and upstream v21.2.0 to ours (`upgrade.sh`, one leg per track), ours Tentacle to
+  Umbrella (`migrate`), and the same between upstream's images (`migrate-control`) as the reference.
+- CPU negative control: upstream's image is refused on an Ivy Bridge CPU model and runs on Haswell; ours runs on Ivy
+  Bridge and on Nehalem (x86-64-v2 without AVX).
 - ceph-csi's acceptance e2e on Rook with the image; Trivy: CRITICAL findings with a fix fail the build
   ([ADR 0006](docs/adr/0006-test-strategy.md)).
 
